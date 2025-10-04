@@ -1,0 +1,11 @@
+CompileFlags:
+  Add: [-xc++, -Wall, -Wextra, -Wpedantic]
+  Compiler: clang++
+
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+
+Hover:
+  ShowAKA: Yes
