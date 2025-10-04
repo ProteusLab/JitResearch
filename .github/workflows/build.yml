@@ -70,7 +70,7 @@ jobs:
 
       - name: Build
         # Build your program with the given configuration
-        run: cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}} -j
+        run: cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}} --target install -j
 
       - name: Run tests
         working-directory: ${{github.workspace}}/build
