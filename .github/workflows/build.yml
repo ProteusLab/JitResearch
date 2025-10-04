@@ -31,6 +31,7 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     name: Build project
     runs-on: ${{ matrix.os }}
+    needs: check-format
     strategy:
       matrix:
         os: [ubuntu-latest]
