@@ -1,0 +1,5 @@
+add_subdirectory(cpu_state)
+add_subdirectory(memory)
+add_subdirectory(isa)
+add_subdirectory(exec_engine)
+add_subdirectory(hart)
