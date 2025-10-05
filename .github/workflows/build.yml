@@ -1,0 +1,79 @@
+name: build
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  TEST_JOBS: 30
+
+jobs:
+  check-format:
+    name: Check code formatting
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        path: ['src', 'tools']
+    steps:
+      - name: Checkout repo and submodules
+        uses: actions/checkout@v4
+
+      - name: Run clang-format style check for C/C++.
+        uses: jidicula/clang-format-action@v4.14.0
+        with:
+          clang-format-version: '18'
+          check-path: ${{ matrix.path }}
+  build:
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    name: Build project
+    runs-on: ${{ matrix.os }}
+    needs: check-format
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        compiler: [g++, clang++]
+        generator: [Ninja]
+        export_commands: [OFF]
+        build_type: [Debug, Release]
+        include:
+          - os: ubuntu-latest
+            compiler: clang++
+            generator: Unix Makefiles
+            build_type: Debug
+            export_commands: ON
+
+    steps:
+      - name: Checkout repo and submodules
+        uses: actions/checkout@v4
+
+      - name: Install Ninja
+        if: ${{ matrix.generator == 'Ninja' }}
+        run: sudo apt install ninja-build
+
+      - name: Install clang-tidy
+        if: ${{ matrix.export_commands == 'ON' }}
+        run: sudo apt install clang-tidy
+
+      - name: Configure CMake
+        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+        run: |
+          cmake -B ${{github.workspace}}/build \
+            -G="${{matrix.generator}}" \
+            -DCMAKE_CXX_COMPILER=${{matrix.compiler}} \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}}
+
+      - name: Build
+        # Build your program with the given configuration
+        run: cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}} --target install -j
+
+      - name: Run tests
+        working-directory: ${{github.workspace}}/build
+        # Execute tests defined by the CMake configuration.
+        # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+        run: ctest -j ${{env.TEST_JOBS}}
