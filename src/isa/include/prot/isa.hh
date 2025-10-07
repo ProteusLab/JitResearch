@@ -6,6 +6,7 @@
 
 #include <bit>
 #include <bitset>
+#include <optional>
 
 namespace prot::isa {
 
@@ -41,7 +42,6 @@ using Imm = std::int32_t;
 using Operand = std::uint8_t;
 
 enum class Opcode : uint16_t {
-  kInvalid,
   kADD,
   kADDI,
   kAND,
@@ -56,7 +56,6 @@ enum class Opcode : uint16_t {
   kEBREAK,
   kECALL,
   kFENCE,
-  // kFENCE_TSO,
   kJAL,
   kJALR,
   kLB,
@@ -91,15 +90,16 @@ enum class Opcode : uint16_t {
 struct Instruction final {
   using enum Opcode;
 
-  Instruction() = default;
-
   explicit Instruction(Opcode opc) : m_opc(opc) {}
 
   [[nodiscard]] auto opcode() const { return m_opc; }
 
-  static Instruction decode(Word bytes);
+  static std::optional<Instruction> decode(Word word);
+
 private:
-  Opcode m_opc{Opcode::kInvalid};
+  Instruction() = default;
+
+  Opcode m_opc{};
 
   Operand m_rs1{};
   Operand m_rs2{};

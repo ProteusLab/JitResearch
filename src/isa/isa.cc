@@ -1,63 +1,41 @@
 #include "prot/isa.hh"
 
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 
 namespace prot::isa {
 
-static std::unordered_map<Opcode, std::string> opc2str{
-
-    {Opcode::kADD, "ADD"},
-    {Opcode::kADDI, "ADDI"},
-    {Opcode::kAND, "AND"},
-    {Opcode::kANDI, "ANDI"},
-    {Opcode::kAUIPC, "AUIPC"},
-    {Opcode::kBEQ, "BEQ"},
-    {Opcode::kBGE, "BGE"},
-    {Opcode::kBGEU, "BGEU"},
-    {Opcode::kBLT, "BLT"},
-    {Opcode::kBLTU, "BLTU"},
-    {Opcode::kBNE, "BNE"},
-    {Opcode::kEBREAK, "EBREAK"},
-    {Opcode::kECALL, "ECALL"},
-    {Opcode::kFENCE, "FENCE"},
-    {Opcode::kJAL, "JAL"},
-    {Opcode::kJALR, "JALR"},
-    {Opcode::kLB, "LB"},
-    {Opcode::kLBU, "LBU"},
-    {Opcode::kLH, "LH"},
-    {Opcode::kLHU, "LHU"},
-    {Opcode::kLUI, "LUI"},
-    {Opcode::kLW, "LW"},
-    {Opcode::kOR, "OR"},
-    {Opcode::kORI, "ORI"},
-    {Opcode::kPAUSE, "PAUSE"},
-    {Opcode::kSB, "SB"},
-    {Opcode::kSBREAK, "SBREAK"},
-    {Opcode::kSCALL, "SCALL"},
-    {Opcode::kSH, "SH"},
-    {Opcode::kSLL, "SLL"},
-    {Opcode::kSLLI, "SLLI"},
-    {Opcode::kSLT, "SLT"},
-    {Opcode::kSLTI, "SLTI"},
-    {Opcode::kSLTIU, "SLTIU"},
-    {Opcode::kSLTU, "SLTU"},
-    {Opcode::kSRA, "SRA"},
-    {Opcode::kSRAI, "SRAI"},
-    {Opcode::kSRL, "SRL"},
-    {Opcode::kSRLI, "SRLI"},
-    {Opcode::kSUB, "SUB"},
-    {Opcode::kSW, "SW"},
-    {Opcode::kXOR, "XOR"},
+static const std::unordered_map<Opcode, std::string> kOpc2str{
+    {Opcode::kADD, "ADD"},       {Opcode::kADDI, "ADDI"},
+    {Opcode::kAND, "AND"},       {Opcode::kANDI, "ANDI"},
+    {Opcode::kAUIPC, "AUIPC"},   {Opcode::kBEQ, "BEQ"},
+    {Opcode::kBGE, "BGE"},       {Opcode::kBGEU, "BGEU"},
+    {Opcode::kBLT, "BLT"},       {Opcode::kBLTU, "BLTU"},
+    {Opcode::kBNE, "BNE"},       {Opcode::kEBREAK, "EBREAK"},
+    {Opcode::kECALL, "ECALL"},   {Opcode::kFENCE, "FENCE"},
+    {Opcode::kJAL, "JAL"},       {Opcode::kJALR, "JALR"},
+    {Opcode::kLB, "LB"},         {Opcode::kLBU, "LBU"},
+    {Opcode::kLH, "LH"},         {Opcode::kLHU, "LHU"},
+    {Opcode::kLUI, "LUI"},       {Opcode::kLW, "LW"},
+    {Opcode::kOR, "OR"},         {Opcode::kORI, "ORI"},
+    {Opcode::kPAUSE, "PAUSE"},   {Opcode::kSB, "SB"},
+    {Opcode::kSBREAK, "SBREAK"}, {Opcode::kSCALL, "SCALL"},
+    {Opcode::kSH, "SH"},         {Opcode::kSLL, "SLL"},
+    {Opcode::kSLLI, "SLLI"},     {Opcode::kSLT, "SLT"},
+    {Opcode::kSLTI, "SLTI"},     {Opcode::kSLTIU, "SLTIU"},
+    {Opcode::kSLTU, "SLTU"},     {Opcode::kSRA, "SRA"},
+    {Opcode::kSRAI, "SRAI"},     {Opcode::kSRL, "SRL"},
+    {Opcode::kSRLI, "SRLI"},     {Opcode::kSUB, "SUB"},
+    {Opcode::kSW, "SW"},         {Opcode::kXOR, "XOR"},
     {Opcode::kXORI, "XORI"},
 };
 
-std::string strOpc(Opcode opc) {
-    return opc2str[opc];
-}
+std::string strOpc(Opcode opc) { return kOpc2str.at(opc); }
 
 // Automatically Generated Decoder
-Instruction Instruction::decode(Word word) {
+std::optional<Instruction> Instruction::decode(Word word) {
 
   Instruction instr{};
   switch ((word >> 0) & 0b111000001111111) {
@@ -458,6 +436,6 @@ Instruction Instruction::decode(Word word) {
   }
   }
 
-  return Instruction{Opcode::kInvalid};
+  return {};
 }
 } // namespace prot::isa
