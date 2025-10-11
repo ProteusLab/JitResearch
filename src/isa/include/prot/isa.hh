@@ -5,7 +5,6 @@
 #include <limits>
 
 #include <bit>
-#include <bitset>
 #include <optional>
 
 static_assert(std::endian::native == std::endian::little,

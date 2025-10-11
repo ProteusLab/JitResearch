@@ -2,6 +2,7 @@
 #define PROT_CPU_STATE_HH_INCLUDED
 
 #include <array>
+#include <ostream>
 
 #include "prot/isa.hh"
 

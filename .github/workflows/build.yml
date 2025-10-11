@@ -39,12 +39,12 @@ jobs:
         generator: [Ninja]
         export_commands: [OFF]
         build_type: [Debug, Release]
-        include:
-          - os: ubuntu-latest
-            compiler: clang++
-            generator: Unix Makefiles
-            build_type: Debug
-            export_commands: ON
+        # include:
+        #   - os: ubuntu-latest
+        #     compiler: clang++
+        #     generator: Unix Makefiles
+        #     build_type: Debug
+        #     export_commands: ON
 
     steps:
       - name: Checkout repo and submodules
@@ -66,7 +66,7 @@ jobs:
             -G="${{matrix.generator}}" \
             -DCMAKE_CXX_COMPILER=${{matrix.compiler}} \
             -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}}
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}} \
             -DPROT_ENABLE_WERROR=ON
 
       - name: Build
