@@ -3,6 +3,7 @@
 
 #include "prot/cpu_state.hh"
 #include "prot/isa.hh"
+#include "prot/memory.hh"
 
 namespace prot {
 struct ExecEngine {

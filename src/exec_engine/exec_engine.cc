@@ -4,6 +4,12 @@
 
 namespace prot {
 void ExecEngine::step(CPUState &cpu) {
+  auto pc = cpu.getPC();
+
+  if (pc % sizeof(isa::Word) != 0) {
+    throw std::runtime_error{"Misaligned PC detected"};
+  }
+
   const auto bytes = cpu.memory->read<isa::Word>(cpu.getPC());
 
   auto &&instr = isa::Instruction::decode(bytes);
