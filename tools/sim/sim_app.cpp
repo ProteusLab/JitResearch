@@ -13,12 +13,18 @@
 int main(int argc, const char *argv[]) try {
 
   std::filesystem::path elfPath;
+  constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
+  prot::isa::Addr stackTop{};
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
 
     app.add_option("elf", elfPath, "Path to executable ELF file")
         ->required()
         ->check(CLI::ExistingFile);
+
+    app.add_option("--stack-top", stackTop, "Address of the stack top")
+        ->default_val(kDefaultStack)
+        ->default_str(fmt::format("{:#x}", kDefaultStack));
 
     CLI11_PARSE(app, argc, argv);
   }
@@ -28,7 +34,7 @@ int main(int argc, const char *argv[]) try {
     prot::Hart hart{prot::memory::makePlain(0x80000000, 0x10000),
                     prot::engine::makeInterpreter()};
     hart.load(loader);
-    hart.setSP(0x7fffffff);
+    hart.setSP(stackTop);
 
     return hart;
   }();
