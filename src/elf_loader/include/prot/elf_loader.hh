@@ -2,8 +2,8 @@
 #define PROT_ELF_LOADER_HH_INCLUDED
 
 #include <filesystem>
-#include <memory>
 #include <istream>
+#include <memory>
 
 #include "prot/memory.hh"
 
