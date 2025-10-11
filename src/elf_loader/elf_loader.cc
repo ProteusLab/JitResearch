@@ -7,29 +7,7 @@
 #include <fmt/std.h>
 
 namespace prot {
-namespace {
-Memory::Perms toPerms(ELFIO::Elf_Word flags) {
-  Memory::Perms res{Memory::Perms::kNone};
 
-  if ((flags & ELFIO::PF_R) != ELFIO::Elf_Word{}) {
-    res |= Memory::Perms::kRead;
-  }
-
-  if ((flags & ELFIO::PF_W) != ELFIO::Elf_Word{}) {
-    res |= Memory::Perms::kWrite;
-  }
-
-  if ((flags & ELFIO::PF_X) != ELFIO::Elf_Word{}) {
-    res |= Memory::Perms::kExec;
-  }
-
-  if (res == Memory::Perms::kNone) {
-    throw std::invalid_argument{"Empty permissions for segment detected"};
-  }
-
-  return res;
-}
-} // namespace
 ElfLoader::~ElfLoader() = default;
 
 void ElfLoader::validate() const {
@@ -70,9 +48,6 @@ void ElfLoader::loadMemory(Memory &mem) const {
        m_elf->segments | std::views::filter([](const auto &seg) {
          return seg->get_type() == ELFIO::PT_LOAD;
        })) {
-    mem.allocateBlock(seg->get_virtual_address(), seg->get_memory_size(),
-                      toPerms(seg->get_flags()));
-
     mem.writeBlock(
         std::as_bytes(std::span{seg->get_data(), seg->get_file_size()}),
         seg->get_virtual_address());

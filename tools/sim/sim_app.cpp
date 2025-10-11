@@ -15,6 +15,7 @@ int main(int argc, const char *argv[]) try {
   std::filesystem::path elfPath;
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
+
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
 
@@ -31,7 +32,8 @@ int main(int argc, const char *argv[]) try {
 
   auto hart = [&] {
     prot::ElfLoader loader{elfPath};
-    prot::Hart hart{prot::memory::makePlain(0x80000000, 0x10000),
+
+    prot::Hart hart{prot::memory::makePaged(12),
                     prot::engine::makeInterpreter()};
     hart.load(loader);
     hart.setSP(stackTop);

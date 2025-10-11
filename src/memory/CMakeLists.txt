@@ -1,4 +1,4 @@
-add_library(prot_mem STATIC memory.cc plain_memory.cc)
+add_library(prot_mem STATIC memory.cc plain_memory.cc simple_page_mem.cc)
 target_link_libraries(
   prot_mem
   PUBLIC PROT::isa

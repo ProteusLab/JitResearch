@@ -19,11 +19,6 @@ public:
     }
   }
 
-  void allocateBlock(isa::Addr /*addr*/, std::size_t /*size*/,
-                     Perms /*perms*/) override {
-    // Do nothing for now
-  }
-
   void writeBlock(std::span<const std::byte> src, isa::Addr addr) override {
     checkRange(addr, src.size());
     std::ranges::copy(src, translateAddr(addr));
