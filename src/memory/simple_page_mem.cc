@@ -37,7 +37,7 @@ struct PagedMemConfig {
 
   [[nodiscard]] isa::Addr getAddr(std::size_t page, std::size_t offset) const {
     assert(page < numPages());
-    assert(offset <= offsetMask);
+    assert(offset <= offsetMask());
     return (page << m_offsetBits) | offset;
   }
 
@@ -59,14 +59,14 @@ public:
 
   void writeBlock(std::span<const std::byte> src, isa::Addr addr) override {
     pageWalk(addr, src.size(), [src, this, start = addr](const LocInfo &info) {
-      assert(info.offset + info.size() <= pageSize());
+      assert(info.offset + info.size <= pageSize());
       auto &page = m_storage[info.page];
       auto addr = getAddr(info.page, info.offset);
       if (page.empty()) {
         page.resize(pageSize());
       }
 
-      assert(page.data.size() == pageSize());
+      assert(page.size() == pageSize());
 
       std::ranges::copy(src.subspan(addr - start, info.size),
                         page.data() + info.offset);
@@ -76,7 +76,7 @@ public:
   void readBlock(isa::Addr addr, std::span<std::byte> dest) const override {
     pageWalk(addr, dest.size(),
              [dest, this, start = addr](const LocInfo &info) {
-               assert(info.offset + info.size() <= pageSize());
+               assert(info.offset + info.size <= pageSize());
                const auto &page = m_storage[info.page];
                auto addr = getAddr(info.page, info.offset);
                if (page.empty()) {
@@ -86,7 +86,7 @@ public:
                      addr, addr + info.size)};
                }
 
-               assert(page.data.size() == pageSize());
+               assert(page.size() == pageSize());
 
                std::ranges::copy_n(page.data() + info.offset, info.size,
                                    dest.data() + (addr - start));
