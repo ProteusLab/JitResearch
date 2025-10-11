@@ -2,6 +2,8 @@
 #include "prot/memory.hh"
 #include <stdexcept>
 
+#include <fmt/core.h>
+
 namespace prot {
 void ExecEngine::step(CPUState &cpu) {
   auto pc = cpu.getPC();
@@ -15,7 +17,8 @@ void ExecEngine::step(CPUState &cpu) {
   auto &&instr = isa::Instruction::decode(bytes);
 
   if (!instr.has_value())
-    throw std::runtime_error{"Undefined instruction on decode"};
+    throw std::runtime_error{
+        fmt::format("Undefined instruction on decode: {:#x}", bytes)};
 
   execute(cpu, *instr);
   ++cpu.icount;

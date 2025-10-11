@@ -15,6 +15,10 @@ void ElfLoader::validate() const {
     throw std::invalid_argument{"Invalud ELF type"};
   }
 
+  if (m_elf->get_encoding() != ELFIO::ELFDATA2LSB) {
+    throw std::invalid_argument{"Invalid ELF encoding"};
+  }
+
   if (m_elf->get_class() != ELFIO::ELFCLASS32) {
     throw std::invalid_argument{"Invalid ELF class"};
   }

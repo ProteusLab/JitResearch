@@ -8,6 +8,10 @@
 #include <bitset>
 #include <optional>
 
+static_assert(std::endian::native == std::endian::little,
+              "Sorry, little endian machines are only supported");
+static_assert(-1U == ~0U, "Sorry, two's complement is required");
+
 namespace prot {
 consteval std::size_t toBits(std::size_t bytes) {
   return bytes * std::numeric_limits<unsigned char>::digits;
