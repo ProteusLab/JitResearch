@@ -1,14 +1,17 @@
+#include "prot/page_memory.hh"
 #include <gtest/gtest.h>
 
-#include "prot/page_memory.hh"
+class PageMemTest : public ::testing::Test {
+public:
+  static constexpr std::uint64_t kPageBits = 12;
+  static constexpr std::uint64_t kAddrBits = 16;
 
-class MemTest : public ::testing::Test {
 protected:
   // RAM -- 64kb, Page -- 4KB
-  prot::PageMemory<prot::PageMemConfig<12, 16>> m_mem{};
+  prot::PageMemory<prot::PageMemConfig<kPageBits, kAddrBits>> m_mem{};
 };
 
-TEST_F(MemTest, writeBlockTest) {
+TEST_F(PageMemTest, writeBlockTest) {
   const std::byte test_data[] = {std::byte{0xde}, std::byte{0xad},
                                  std::byte{0xbe}, std::byte{0xef}};
 
@@ -23,7 +26,7 @@ TEST_F(MemTest, writeBlockTest) {
                          std::begin(read_data)));
 }
 
-TEST_F(MemTest, writeBlockTest2) {
+TEST_F(PageMemTest, writeBlockTest2) {
   const std::byte test_data[] = {std::byte{0xde}, std::byte{0xad},
                                  std::byte{0xbe}, std::byte{0xef}};
 
@@ -36,7 +39,7 @@ TEST_F(MemTest, writeBlockTest2) {
   EXPECT_EQ(m_mem.read<prot::isa::Word>(addr), 0xefbeadde);
 }
 
-TEST_F(MemTest, writeBlockTest3) {
+TEST_F(PageMemTest, writeBlockTest3) {
   constexpr prot::isa::Addr addr = 42;
 
   m_mem.write<prot::isa::Byte>(addr + 0, 0xde);
@@ -50,7 +53,7 @@ TEST_F(MemTest, writeBlockTest3) {
   EXPECT_EQ(m_mem.read<prot::isa::Byte>(addr + 3), 0xef);
 }
 
-TEST_F(MemTest, crossPageBoundaryTest) {
+TEST_F(PageMemTest, crossPageBoundaryTest) {
   constexpr prot::isa::Addr boundary_addr = 4096 - 2;
   const std::byte test_data[] = {std::byte{0x12}, std::byte{0x34},
                                  std::byte{0x56}, std::byte{0x78}};
@@ -64,7 +67,7 @@ TEST_F(MemTest, crossPageBoundaryTest) {
                          std::begin(read_data)));
 }
 
-TEST_F(MemTest, pageFaultTest) {
+TEST_F(PageMemTest, pageFaultTest) {
   constexpr prot::isa::Addr unmapped_addr = 0x10000;
 
   std::byte buffer[4];
@@ -79,7 +82,7 @@ TEST_F(MemTest, pageFaultTest) {
   EXPECT_EQ(test_data[0], read_byte[0]);
 }
 
-TEST_F(MemTest, edgeCasesTest) {
+TEST_F(PageMemTest, edgeCasesTest) {
   constexpr prot::isa::Addr end_addr = (1ULL << 16) - 4;
   const std::byte end_data[] = {std::byte{0xfe}, std::byte{0xed},
                                 std::byte{0xfa}, std::byte{0xce}};

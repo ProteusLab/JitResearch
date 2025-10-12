@@ -1,5 +1,4 @@
 add_library(prot_mem STATIC memory.cc plain_memory.cc simple_page_mem.cc)
-add_subdirectory(tests)
 
 target_link_libraries(
   prot_mem
@@ -8,3 +7,5 @@ target_link_libraries(
 target_include_directories(prot_mem PUBLIC include)
 
 add_library(PROT::memory ALIAS prot_mem)
+
+add_subdirectory(tests)

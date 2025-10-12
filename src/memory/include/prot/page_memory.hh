@@ -21,10 +21,9 @@ bool memWalker(isa::Addr addr, std::size_t size, Func func) {
   std::size_t remainSize = size;
 
   while (remainSize > 0) {
-    std::uint64_t pageId = PageConfigT::getId(currentAddr);
-    isa::Addr offset = PageConfigT::getOffset(currentAddr);
-    std::size_t chunkSize =
-        std::min(remainSize, PageConfigT::getPageSize() - offset);
+    auto pageId = PageConfigT::getId(currentAddr);
+    auto offset = PageConfigT::getOffset(currentAddr);
+    auto chunkSize = std::min(remainSize, PageConfigT::getPageSize() - offset);
 
     if (!func(pageId, chunkSize, offset))
       return false;
@@ -52,6 +51,9 @@ private:
   static constexpr std::uint64_t kAddrBits{AddrBits};
   static constexpr std::uint64_t kAddrSpace{1ULL << AddrBits};
   static constexpr PageConfigT kPageConf{};
+
+  static_assert(kAddrSpace >= PageConfigT::getPageSize(),
+                "Total virtual address space is smaller than single page size");
 };
 
 template <typename T>
@@ -64,6 +66,7 @@ template <PageMemConfigConc PageMemConfigT> class PageMemory : public Memory {
 public:
   using PageConfigT = typename PageMemConfigT::PageConfigT;
   using PageT = typename PageMemConfigT::PageT;
+  using PageId = typename PageConfigT::PadeId;
 
   PageMemory() : m_config(PageMemConfigT::getPageConfig()) {
     m_storage.reserve(PageMemConfigT::getPagesNum());
@@ -97,7 +100,7 @@ public:
 
 private:
   PageT getPage(isa::Addr addr) const {
-    std::uint64_t pageId = m_config.getId(addr);
+    auto pageId = m_config.getId(addr);
     auto found = m_storage.find(pageId);
 
     if (found == m_storage.end())
@@ -107,12 +110,12 @@ private:
   }
 
   PageT &getPage(isa::Addr addr) {
-    std::uint64_t pageId = m_config.getId(addr);
+    auto pageId = m_config.getId(addr);
     auto [it, inserted] = m_storage.try_emplace(pageId);
     return it->second;
   }
 
-  std::unordered_map<uint64_t, PageT> m_storage{};
+  std::unordered_map<PageId, PageT> m_storage{};
   PageConfigT m_config;
 };
 } // namespace prot

@@ -18,12 +18,10 @@ endmacro()
 
 function(prot_add_component_utest COMPONENT_NAME)
   file(GLOB TESTLIST RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cc")
-  find_package(GTest REQUIRED)
 
   foreach(TEST_SRC ${TESTLIST})
     set(TEST_NAME "${src_file}_test")
-    prot_add_utest(${TEST_SRC})
-    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/${COMPONENT_NAME}/include)
+    prot_add_utest(${TEST_SRC} ARGN)
 
     set_target_properties(${TEST_NAME}
             PROPERTIES

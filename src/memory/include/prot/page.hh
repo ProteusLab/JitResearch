@@ -13,16 +13,11 @@
 namespace prot {
 template <std::uint64_t PageBits> class PageConfig {
 public:
-  static constexpr std::uint64_t getPageBits() { return kPageBits; }
+  using PadeId = uint32_t;
+
   static constexpr std::uint64_t getPageSize() { return kPageSize; }
-  static constexpr std::uint64_t getOffsetMask() { return kOffsetMask; }
-  static constexpr std::uint64_t getIdMask() { return kIdMask; }
-
-  static std::uint64_t getId(isa::Addr addr) {
-    return (addr & kIdMask) >> kPageBits;
-  }
-
   static isa::Addr getOffset(isa::Addr addr) { return addr & kOffsetMask; }
+  static PadeId getId(isa::Addr addr) { return (addr & kIdMask) >> kPageBits; }
 
 private:
   static constexpr std::uint64_t kPageBits{PageBits};
@@ -34,7 +29,7 @@ private:
 template <typename T>
 concept PageConfigConc = requires(T, isa::Addr addr) {
   { T::getPageSize() } -> std::same_as<std::uint64_t>;
-  { T::getId(addr) } -> std::same_as<std::uint64_t>;
+  { T::getId(addr) } -> std::same_as<typename T::PadeId>;
   { T::getOffset(addr) } -> std::same_as<isa::Addr>;
 };
 
