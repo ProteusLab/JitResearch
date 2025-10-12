@@ -20,7 +20,7 @@ public:
   explicit Unmap(std::size_t size) noexcept : m_size(size) {}
 
   void operator()(void *ptr) noexcept {
-    auto res = munmap(ptr, m_size);
+    [[maybe_unused]] auto res = munmap(ptr, m_size);
     assert(res != -1);
   }
 };
@@ -101,9 +101,9 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   reset(); // XByak specific (CodeGenerator is about a PAGE size!!, so reuse it)
   Xbyak::util::StackFrame frame{this, 3, 3};
 
-  auto temp1 = frame.t[0].cvt32();
-  auto temp2 = frame.t[1].cvt32();
-  auto temp3 = frame.t[2].cvt32();
+  [[maybe_unused]] auto temp1 = frame.t[0].cvt32();
+  [[maybe_unused]] auto temp2 = frame.t[1].cvt32();
+  [[maybe_unused]] auto temp3 = frame.t[2].cvt32();
 
   auto get_reg = [&frame](std::size_t regId) {
     return frame.p[0] + sizeof(isa::Word) * regId;
