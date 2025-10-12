@@ -1,6 +1,7 @@
 #include "prot/jit/xbyak.hh"
 #include "prot/jit/base.hh"
 
+#include <functional>
 #include <xbyak/xbyak.h>
 #include <xbyak/xbyak_util.h>
 
@@ -105,93 +106,131 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   [[maybe_unused]] auto temp2 = frame.t[1].cvt32();
   [[maybe_unused]] auto temp3 = frame.t[2].cvt32();
 
-  auto get_reg = [&frame](std::size_t regId) {
-    return frame.p[0] + sizeof(isa::Word) * regId;
+  auto getReg = [&frame, this](std::size_t regId) {
+    return dword[frame.p[0] + sizeof(isa::Word) * regId];
   };
 
-  for (const auto &insn : info.insns) {
-    auto get_rs1 = [&](Xbyak::Reg32 reg) {
-      mov(reg, dword[get_reg(insn.rs1())]);
-    };
-    auto get_rs2 = [&](Xbyak::Reg32 reg) {
-      mov(reg, dword[get_reg(insn.rs2())]);
-    };
+  auto getPc = std::bind_front(getReg, CPUState::kNumRegs);
 
-    auto set_rd = [&](Xbyak::Reg32 reg) {
-      mov(dword[get_reg(insn.rd())], reg);
+  for (const auto &insn : info.insns) {
+    auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
+    auto getRs2 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs2())); };
+
+    auto setRd = [&](Xbyak::Reg32 reg) {
+      if (insn.rd() != 0)
+        mov(getReg(insn.rd()), reg);
     };
 
     switch (insn.opcode()) {
-    case isa::Opcode::kADD:
-    case isa::Opcode::kADDI: {
-      auto val = temp1;
-      get_rs1(val);
-      add(val, insn.imm());
-      set_rd(val);
+      using enum isa::Opcode;
+#define PROT_MAKE_IMPL(OP, op)                                                 \
+  case k##OP:                                                                  \
+  case k##OP##I: {                                                             \
+    getRs1(temp1);                                                             \
+    if (insn.opcode() == kADDI) {                                              \
+      op(temp1, insn.imm());                                                   \
+    } else {                                                                   \
+      op(temp1, getReg(insn.rs2()));                                           \
+    }                                                                          \
+    setRd(temp1);                                                              \
+    break;                                                                     \
+  }
+
+      PROT_MAKE_IMPL(ADD, add)
+      PROT_MAKE_IMPL(AND, and_)
+      PROT_MAKE_IMPL(OR, or_)
+      PROT_MAKE_IMPL(XOR, xor_)
+
+    case kAUIPC: {
+      mov(temp1, getPc());
+      add(temp1, insn.imm());
+      setRd(temp1);
       break;
     }
-    case isa::Opcode::kAND:
-    case isa::Opcode::kANDI:
-    case isa::Opcode::kAUIPC:
-    case isa::Opcode::kBEQ:
-    case isa::Opcode::kBGE:
-    case isa::Opcode::kBGEU:
-    case isa::Opcode::kBLT:
-    case isa::Opcode::kBLTU:
-    case isa::Opcode::kBNE:
-    case isa::Opcode::kEBREAK:
-    case isa::Opcode::kECALL: {
+
+    case kBEQ:
+    case kBGE:
+    case kBGEU:
+    case kBLT:
+    case kBLTU:
+    case kBNE:
+    case kEBREAK:
+    case kECALL: {
       // set finished
       mov(byte[frame.p[0] + (CPUState::kNumRegs + 1) * sizeof(isa::Word)], 1);
       break;
     }
-    case isa::Opcode::kFENCE:
-    case isa::Opcode::kJAL:
-    case isa::Opcode::kJALR:
-    case isa::Opcode::kLB:
-    case isa::Opcode::kLBU:
-    case isa::Opcode::kLH:
-    case isa::Opcode::kLHU:
-    case isa::Opcode::kLUI:
-    case isa::Opcode::kLW:
-    case isa::Opcode::kOR:
-    case isa::Opcode::kORI:
-    case isa::Opcode::kPAUSE:
-    case isa::Opcode::kSB:
-    case isa::Opcode::kSBREAK:
-    case isa::Opcode::kSCALL:
-    case isa::Opcode::kSH:
-    case isa::Opcode::kSLL:
-    case isa::Opcode::kSLLI:
-    case isa::Opcode::kSLT:
-    case isa::Opcode::kSLTI:
-    case isa::Opcode::kSLTIU:
-    case isa::Opcode::kSLTU:
-    case isa::Opcode::kSRA:
-    case isa::Opcode::kSRAI:
-    case isa::Opcode::kSRL:
-    case isa::Opcode::kSRLI:
-    case isa::Opcode::kSUB:
-    case isa::Opcode::kSW: {
-      auto addr = frame.p[1];
-      auto val = frame.p[2];
-      get_rs1(addr.cvt32());
-      add(addr.cvt32(), insn.imm()); // calc addr
-      get_rs2(val.cvt32());
+    case kFENCE:
+    case kJAL: {
+      mov(temp1, getPc());
+      add(temp1, sizeof(isa::Word));
+      setRd(temp1);
+
+      add(getPc(), insn.imm());
+      break;
+    }
+    case kJALR: {
+      break;
+    }
+    case kLB:
+    case kLBU:
+    case kLH:
+    case kLHU:
+    case kLUI:
+    case kLW:
+    case kPAUSE:
+    case kSBREAK:
+    case kSCALL:
+    case kSLL:
+    case kSLLI:
+    case kSLT:
+    case kSLTI:
+    case kSLTIU:
+    case kSLTU:
+    case kSRA:
+    case kSRAI:
+    case kSRL:
+    case kSRLI:
+    case kSUB: {
+      getRs1(temp1);
+      sub(temp1, getReg(insn.rs2()));
+      setRd(temp1);
+      break;
+    }
+    case kSB:
+    case kSH:
+    case kSW: {
+      auto addr = frame.p[1].cvt32();
+      getRs1(addr);
+      add(addr, insn.imm()); // calc addr
+      auto val = frame.p[2].cvt32();
+      getRs2(val);
+
+      const auto helper = [op = insn.opcode()] {
+        switch (op) {
+        case kSB:
+          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Byte>);
+        case kSH:
+          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Half>);
+        case kSW:
+          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Word>);
+        default:
+          break;
+        };
+
+        assert(false && "Failed");
+      }();
 
       push(frame.p[0]);
-      mov(frame.t[0],
-          reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Word>));
+      mov(frame.t[0], helper);
       call(frame.t[0]);
       pop(frame.p[0]);
       break;
     }
-    case isa::Opcode::kXOR:
-    case isa::Opcode::kXORI:
-    case isa::Opcode::kNumOpcodes:
+    case kNumOpcodes:
       break;
     }
-  }
+  } // namespace
   frame.close();
   ready();
   fmt::println("CODE DUMP");
@@ -201,7 +240,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   // Copy data to holder
 
   return CodeHolder{std::as_bytes(std::span{getCode(), getSize()})};
-}
+} // namespace prot::engine
 } // namespace
 
 std::unique_ptr<ExecEngine> makeXbyak() { return std::make_unique<XByakJit>(); }
