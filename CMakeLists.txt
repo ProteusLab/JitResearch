@@ -7,6 +7,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 option(PROT_ENABLE_WERROR "Enable -Werror option (CI)" OFF)
+option(PROT_BUILD_TESTS "Enable tests building (CI)" OFF)
 
 enable_testing()
 
