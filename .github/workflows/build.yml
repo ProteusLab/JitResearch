@@ -39,12 +39,12 @@ jobs:
         generator: [Ninja]
         export_commands: [OFF]
         build_type: [Debug, Release]
-        include:
-          - os: ubuntu-latest
-            compiler: clang++
-            generator: Unix Makefiles
-            build_type: Debug
-            export_commands: ON
+        # include:
+        #   - os: ubuntu-latest
+        #     compiler: clang++
+        #     generator: Unix Makefiles
+        #     build_type: Debug
+        #     export_commands: ON
 
     steps:
       - name: Checkout repo and submodules
@@ -66,7 +66,8 @@ jobs:
             -G="${{matrix.generator}}" \
             -DCMAKE_CXX_COMPILER=${{matrix.compiler}} \
             -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}}
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}} \
+            -DPROT_ENABLE_WERROR=ON
 
       - name: Build
         # Build your program with the given configuration
@@ -77,3 +78,8 @@ jobs:
         # Execute tests defined by the CMake configuration.
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
         run: ctest -j ${{env.TEST_JOBS}}
+
+      - name: Clang-tidy check
+        if: ${{ matrix.export_commands == 'ON' }}
+        working-directory: ${{github.workspace}}/build
+        run: run-clang-tidy -warnings-as-errors='*' -header-filter='.*' -use-color 1  ${{github.workspace}}/src/ ${{github.workspace}}/tools/

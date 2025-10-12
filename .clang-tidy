@@ -1,12 +1,17 @@
 ---
 Checks: >
   -*,
+  clang-analyzer-*,
   bugprone-*
   misc-*,
   modernize-*,
   performance-*,
   portability-*,
   readability-*,
+  -llvmlibc-*,
+  -altera-struct-pack-align,
+  -altera-unroll-loops,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
   -fuchsia-trailing-return,
   -readability-magic-numbers,
   -modernize-use-nodiscard,

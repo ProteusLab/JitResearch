@@ -5,11 +5,13 @@
 #include <limits>
 
 #include <bit>
-#include <bitset>
 #include <optional>
 
-namespace prot::isa {
+static_assert(std::endian::native == std::endian::little,
+              "Sorry, little endian machines are only supported");
+static_assert(-1U == ~0U, "Sorry, two's complement is required");
 
+namespace prot {
 consteval std::size_t toBits(std::size_t bytes) {
   return bytes * std::numeric_limits<unsigned char>::digits;
 }
@@ -18,7 +20,18 @@ template <typename T> consteval std::size_t sizeofBits() {
   return toBits(sizeof(T));
 }
 
-constexpr std::uint32_t ones(uint32_t num) { return (1 << num) - 1; }
+template <typename T>
+constexpr auto toUnderlying(T val)
+  requires std::is_enum_v<T>
+{
+  return static_cast<std::underlying_type_t<T>>(val);
+}
+
+namespace isa {
+
+constexpr std::uint32_t ones(uint32_t num) {
+  return (std::uint32_t{1} << num) - std::uint32_t{1};
+}
 
 template <std::size_t Msb, std::size_t Lsb> constexpr std::uint32_t getMask() {
   static_assert(Msb >= Lsb, "Error : illegal bits range");
@@ -40,6 +53,30 @@ using Half = std::uint16_t;
 using Byte = std::uint8_t;
 using Imm = std::int32_t;
 using Operand = std::uint8_t;
+
+constexpr bool signedLess(isa::Word lhs, isa::Word rhs) {
+  using Signed = std::make_signed_t<isa::Word>;
+
+  return static_cast<Signed>(lhs) < static_cast<Signed>(rhs);
+}
+
+template <std::size_t NewSize, std::size_t OldSize>
+constexpr Word signExtend(Word val) {
+  static_assert(NewSize >= OldSize, "Trying to sign extend to smaller size");
+  static_assert(OldSize > 0, "Initial size must be non-zero");
+  static_assert(NewSize <= sizeofBits<isa::Word>(),
+                "newSize is out of bits range");
+
+  if constexpr (NewSize == OldSize) {
+    return val;
+  } else {
+    Word zeroed = slice<OldSize - 1, 0>(val);
+    constexpr Word mask = static_cast<Word>(1) << (OldSize - 1);
+    Word res = (zeroed ^ mask) - mask;
+
+    return slice<NewSize - 1, 0>(res);
+  }
+}
 
 enum class Opcode : uint16_t {
   kADD,
@@ -85,6 +122,8 @@ enum class Opcode : uint16_t {
   kSW,
   kXOR,
   kXORI,
+
+  kNumOpcodes,
 };
 
 struct Instruction final {
@@ -95,6 +134,11 @@ struct Instruction final {
   [[nodiscard]] auto opcode() const { return m_opc; }
 
   static std::optional<Instruction> decode(Word word);
+
+  [[nodiscard]] Operand rd() const { return m_rd; }
+  [[nodiscard]] Operand rs1() const { return m_rs1; }
+  [[nodiscard]] Operand rs2() const { return m_rs2; }
+  [[nodiscard]] Imm imm() const { return m_imm; }
 
 private:
   Instruction() = default;
@@ -108,6 +152,6 @@ private:
   Imm m_imm{};
 };
 
-} // namespace prot::isa
-
+} // namespace isa
+} // namespace prot
 #endif // PROT_ISA_HH_INCLUDED

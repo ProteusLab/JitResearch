@@ -6,6 +6,8 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set_property(CACHE CMAKE_INSTALL_PREFIX PROPERTY VALUE "${CMAKE_BINARY_DIR}/install")
 endif()
 
+option(PROT_ENABLE_WERROR "Enable -Werror option (CI)" OFF)
+
 enable_testing()
 
 include(cmake/CPM.cmake)

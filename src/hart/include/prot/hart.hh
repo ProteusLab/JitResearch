@@ -4,18 +4,22 @@
 #include <memory>
 
 #include "prot/cpu_state.hh"
+#include "prot/elf_loader.hh"
 #include "prot/exec_engine.hh"
 #include "prot/memory.hh"
 
 namespace prot {
-
-class Loader;
-
 class Hart {
-
+public:
   Hart(std::unique_ptr<Memory> mem, std::unique_ptr<ExecEngine> engine);
 
-  void load(const Loader &loader);
+  void setSP(isa::Addr addr);
+
+  void load(const ElfLoader &loader);
+
+  void dump(std::ostream &ost) const;
+
+  void setPC(isa::Addr addr);
 
   void run() {
     while (!m_cpu->finished) {

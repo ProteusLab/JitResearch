@@ -2,6 +2,7 @@
 #define PROT_CPU_STATE_HH_INCLUDED
 
 #include <array>
+#include <ostream>
 
 #include "prot/isa.hh"
 
@@ -24,7 +25,13 @@ struct CPUState final {
   isa::Word getPC() const { return pc; }
 
   isa::Word getReg(std::size_t id) const { return regs[id]; }
-  void setReg(std::size_t id, isa::Word val) { regs[id] = val; }
+  void setReg(std::size_t id, isa::Word val) {
+    if (id != 0) {
+      regs[id] = val;
+    }
+  }
+
+  void dump(std::ostream &ost) const;
 };
 } // namespace prot
 
