@@ -6,7 +6,7 @@ macro(prot_add_utest src_file)
   set(TEST_NAME "${src_file}_test")
   add_executable(${TEST_NAME} ${src_file})
 
-  target_link_libraries(${TEST_NAME} PRIVATE GMock::gmock_main PROT::defaults)
+  target_link_libraries(${TEST_NAME} PRIVATE PROT::defaults GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main)
   foreach(arg IN LISTS ARGN)
     target_link_libraries(${TEST_NAME} PRIVATE ${arg})
   endforeach()
@@ -15,3 +15,20 @@ macro(prot_add_utest src_file)
     EXTRA_ARGS --gtest_color=yes
     PROPERTIES LABELS unit)
 endmacro()
+
+function(prot_add_component_utest COMPONENT_NAME)
+  file(GLOB TESTLIST RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cc")
+  find_package(GTest REQUIRED)
+
+  foreach(TEST_SRC ${TESTLIST})
+    set(TEST_NAME "${src_file}_test")
+    prot_add_utest(${TEST_SRC})
+    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/${COMPONENT_NAME}/include)
+
+    set_target_properties(${TEST_NAME}
+            PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/test/${COMPONENT_NAME}"
+    )
+
+  endforeach()
+endfunction()
