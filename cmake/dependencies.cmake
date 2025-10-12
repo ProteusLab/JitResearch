@@ -30,3 +30,12 @@ CPMAddPackage(
   OPTIONS "INSTALL_GTEST OFF"
   EXCLUDE_FROM_ALL True
   SYSTEM True)
+
+# xbyak
+CPMAddPackage(
+  NAME xbyak
+  GITHUB_REPOSITORY herumi/xbyak
+  VERSION 7.30
+  EXCLUDE_FROM_ALL True
+  SYSTEM True
+  DOWNLOAD_ONLY)
