@@ -39,3 +39,11 @@ CPMAddPackage(
   EXCLUDE_FROM_ALL True
   SYSTEM True
   DOWNLOAD_ONLY)
+
+# asmjit
+CPMAddPackage(
+  NAME asmjit
+  GITHUB_REPOSITORY asmjit/asmjit
+  GIT_TAG 0b3aec39d18a98a87449f031a469b60aedae1a9b
+  EXCLUDE_FROM_ALL True
+  SYSTEM True)
