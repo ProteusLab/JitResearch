@@ -20,7 +20,7 @@ struct Unmap {
 public:
   explicit Unmap(std::size_t size) noexcept : m_size(size) {}
 
-  void operator()(void *ptr) noexcept {
+  void operator()(void *ptr) const noexcept {
     [[maybe_unused]] auto res = munmap(ptr, m_size);
     assert(res != -1);
   }
@@ -33,6 +33,7 @@ public:
   explicit CodeHolder(std::span<const std::byte> src)
       : m_data(
             [sz = src.size()] {
+              // NOLINTNEXTLINE
               auto *ptr = mmap(NULL, sz, PROT_READ | PROT_WRITE | PROT_EXEC,
                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
               if (ptr == MAP_FAILED) {
@@ -98,6 +99,10 @@ void storeHelper(CPUState &state, isa::Addr addr,
   state.memory->write(addr, val);
 }
 
+template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
+  return state.memory->read<T>(addr);
+}
+
 CodeHolder XByakJit::translate(const BBInfo &info) {
   reset(); // XByak specific (CodeGenerator is about a PAGE size!!, so reuse it)
   Xbyak::util::StackFrame frame{this, 3, 3};
@@ -124,14 +129,15 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
     switch (insn.opcode()) {
       using enum isa::Opcode;
 #define PROT_MAKE_IMPL(OP, op)                                                 \
-  case k##OP:                                                                  \
+  case k##OP: {                                                                \
+    getRs1(temp1);                                                             \
+    op(temp1, getReg(insn.rs2()));                                             \
+    setRd(temp1);                                                              \
+    break;                                                                     \
+  }                                                                            \
   case k##OP##I: {                                                             \
     getRs1(temp1);                                                             \
-    if (insn.opcode() == kADDI) {                                              \
-      op(temp1, insn.imm());                                                   \
-    } else {                                                                   \
-      op(temp1, getReg(insn.rs2()));                                           \
-    }                                                                          \
+    op(temp1, insn.imm());                                                     \
     setRd(temp1);                                                              \
     break;                                                                     \
   }
@@ -141,6 +147,8 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       PROT_MAKE_IMPL(OR, or_)
       PROT_MAKE_IMPL(XOR, xor_)
 
+#undef PROT_MAKE_IMPL
+
     case kAUIPC: {
       mov(temp1, getPc());
       add(temp1, insn.imm());
@@ -148,19 +156,34 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       break;
     }
 
-    case kBEQ:
-    case kBGE:
-    case kBGEU:
-    case kBLT:
-    case kBLTU:
-    case kBNE:
+#define PROT_MAKE_IMPL(Op, cc)                                                 \
+  case kB##Op: {                                                               \
+    getRs1(temp1);                                                             \
+    cmp(temp1, getReg(insn.rs2()));                                            \
+    xor_(temp1, temp1);                                                        \
+    mov(temp2, insn.imm());                                                    \
+    cmov##cc(temp1, temp2);                                                    \
+                                                                               \
+    add(getPc(), temp1);                                                       \
+    break;                                                                     \
+  }
+      PROT_MAKE_IMPL(EQ, z)
+      PROT_MAKE_IMPL(GE, ge)
+      PROT_MAKE_IMPL(GEU, a)
+      PROT_MAKE_IMPL(LT, l)
+      PROT_MAKE_IMPL(LTU, b)
+      PROT_MAKE_IMPL(NE, ne)
+#undef PROT_MAKE_IMPL
+
     case kEBREAK:
     case kECALL: {
       // set finished
       mov(byte[frame.p[0] + (CPUState::kNumRegs + 1) * sizeof(isa::Word)], 1);
       break;
     }
-    case kFENCE:
+    case kFENCE: {
+      break;
+    }
     case kJAL: {
       mov(temp1, getPc());
       add(temp1, sizeof(isa::Word));
@@ -170,27 +193,110 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       break;
     }
     case kJALR: {
+      mov(temp1, getPc());
+      add(temp1, sizeof(isa::Word));
+
+      getRs1(temp2);
+      add(temp2, insn.imm());
+      and_(temp2, ~std::uint32_t{1});
+      mov(getPc(), temp2);
+
+      setRd(temp1);
+      break;
+    }
+    case kLUI: {
+      mov(getReg(insn.rd()), insn.imm());
       break;
     }
     case kLB:
     case kLBU:
     case kLH:
     case kLHU:
-    case kLUI:
-    case kLW:
+    case kLW: {
+      auto addr = frame.p[1].cvt32();
+      getRs1(addr);
+      add(addr, insn.imm()); // calc addr
+
+      const auto helper = [op = insn.opcode()] {
+        switch (op) {
+        case kLB:
+        case kLBU:
+          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Byte>);
+        case kLH:
+        case kLHU:
+          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Half>);
+        case kLW:
+          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Word>);
+        default:
+          return std::uintptr_t{};
+        }
+      }();
+
+      push(frame.p[0]);
+      mov(frame.t[0], helper);
+      xor_(eax, eax);
+      call(frame.t[0]);
+      pop(frame.p[0]);
+
+      switch (insn.opcode()) {
+      case kLB:
+        cwd();
+      case kLH:
+        cwde();
+      default:
+        break;
+      }
+
+      setRd(eax);
+
+      break;
+    }
     case kPAUSE:
     case kSBREAK:
-    case kSCALL:
-    case kSLL:
-    case kSLLI:
-    case kSLT:
-    case kSLTI:
-    case kSLTIU:
-    case kSLTU:
-    case kSRA:
-    case kSRAI:
-    case kSRL:
-    case kSRLI:
+    case kSCALL: {
+      break;
+    }
+#define PROT_MAKE_IMPL(Op, Op2, cc)                                            \
+  case k##Op: {                                                                \
+    getRs1(temp1);                                                             \
+    cmp(temp1, getReg(insn.rs2()));                                            \
+    xor_(temp1, temp1);                                                        \
+    set##cc(temp1.cvt8());                                                     \
+    setRd(temp1);                                                              \
+    break;                                                                     \
+  }                                                                            \
+  case k##Op2: {                                                               \
+    cmp(getReg(insn.rs1()), insn.imm());                                       \
+    xor_(temp1, temp1);                                                        \
+    set##cc(temp1.cvt8());                                                     \
+    setRd(temp1);                                                              \
+    break;                                                                     \
+  }
+      PROT_MAKE_IMPL(SLT, SLTI, l);
+      PROT_MAKE_IMPL(SLTU, SLTIU, b);
+#undef PROT_MAKE_IMPL
+
+#define PROT_MAKE_IMPL(Op, op)                                                 \
+  case kS##Op: {                                                               \
+    getRs1(temp1);                                                             \
+    getRs2(ecx);                                                               \
+    and_(ecx, 0b11111);                                                        \
+    op(temp1, cl);                                                             \
+    setRd(temp1);                                                              \
+    break;                                                                     \
+  }                                                                            \
+  case kS##Op##I: {                                                            \
+    getRs1(temp1);                                                             \
+    /* FIXME: invalid decoding */                                              \
+    op(temp1, insn.rs2());                                                     \
+    break;                                                                     \
+  }
+
+      PROT_MAKE_IMPL(LL, shl)
+      PROT_MAKE_IMPL(RA, sar)
+      PROT_MAKE_IMPL(RL, shr)
+#undef PROT_MAKE_IMPL
+
     case kSUB: {
       getRs1(temp1);
       sub(temp1, getReg(insn.rs2()));
@@ -215,10 +321,8 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
         case kSW:
           return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Word>);
         default:
-          break;
+          return std::uintptr_t{};
         };
-
-        assert(false && "Failed");
       }();
 
       push(frame.p[0]);
@@ -228,7 +332,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       break;
     }
     case kNumOpcodes:
-      break;
+      throw std::invalid_argument{"Unexpected insn id"};
     }
   } // namespace
   frame.close();
@@ -240,7 +344,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   // Copy data to holder
 
   return CodeHolder{std::as_bytes(std::span{getCode(), getSize()})};
-} // namespace prot::engine
+} // namespace
 } // namespace
 
 std::unique_ptr<ExecEngine> makeXbyak() { return std::make_unique<XByakJit>(); }
