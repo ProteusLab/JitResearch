@@ -1344,6 +1344,142 @@ void EBREAKInstruction::buildIR(IRData& Data) {
 
 } // end anonymouse namespace
 
+void buildInstruction(IRData& Data, isa::Instruction insn) {
+  switch (insn.opcode()) {
+    case prot::isa::Opcode::kLUI:
+      LUIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kAUIPC:
+      AUIPCInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kJAL:
+      JALInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kJALR:
+      JALRInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBEQ:
+      BEQInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBNE:
+      BNEInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBLT:
+      BLTInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBGE:
+      BGEInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBLTU:
+      BLTUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kBGEU:
+      BGEUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kLB:
+      LBInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kLH:
+      LHInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kLW:
+      LWInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kLBU:
+      LBUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kLHU:
+      LHUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSB:
+      SBInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSH:
+      SHInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSW:
+      SWInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kADDI:
+      ADDIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLTI:
+      SLTIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLTIU:
+      SLTIUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kXORI:
+      XORIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kORI:
+      ORIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kANDI:
+      ANDIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLLI:
+      SLLIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSRLI:
+      SRLIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSRAI:
+      SRAIInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kADD:
+      ADDInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSUB:
+      SUBInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLL:
+      SLLInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLT:
+      SLTInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSLTU:
+      SLTUInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kXOR:
+      XORInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSRL:
+      SRLInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kSRA:
+      SRAInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kOR:
+      ORInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kAND:
+      ANDInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kFENCE:
+      FENCEInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kPAUSE:
+      PAUSEInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kECALL:
+      ECALLInstruction{insn}.buildIR(Data);
+      return;
+    case prot::isa::Opcode::kEBREAK:
+      EBREAKInstruction{insn}.buildIR(Data);
+      return;
+    case isa::Opcode::kSBREAK:
+      EBREAKInstruction{insn}.buildIR(Data);
+      return;
+    case isa::Opcode::kSCALL:
+      ECALLInstruction{insn}.buildIR(Data);
+      return;
+    case isa::Opcode::kNumOpcodes:
+      break;
+    }
+}
+
 
 } // end namespace prot::engine
 
