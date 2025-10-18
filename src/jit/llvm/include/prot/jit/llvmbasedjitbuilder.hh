@@ -17,7 +17,7 @@ struct IRData {
   llvm::Module& Module;
   llvm::IRBuilder<>& Builder;
   llvm::Function* CurrentFunction;
-  std::array<llvm::FunctionCallee, 6> MemoryFunctions;
+  std::array<llvm::Function*, 8> MemoryFunctions;
 };    
 
 void buildInstruction(IRData& data, isa::Instruction insn);
