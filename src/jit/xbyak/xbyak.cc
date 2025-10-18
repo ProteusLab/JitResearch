@@ -237,12 +237,15 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       xor_(eax, eax);
       call(frame.t[0]);
       pop(frame.p[0]);
-
-      switch (insn.opcode()) {
+      switch (auto op = insn.opcode()) {
       case kLB:
-        cwd();
       case kLH:
+        cbw();
+        if (op == kLB) {
+          break;
+        }
         cwde();
+        break;
       default:
         break;
       }
