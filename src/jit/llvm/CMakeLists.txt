@@ -5,11 +5,11 @@ llvm_map_components_to_libnames(
   Core
   OrcJIT
   Support
-  NativeCodeGen
   Core
   IRReader
-  Native
   X86AsmParser
+  native
+  x86asmparser
 )
 
 add_library(llvmbased_ext INTERFACE)

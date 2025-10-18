@@ -5,6 +5,7 @@ target_link_libraries(
           PROT::defaults
           PROT::interpreter
           PROT::JIT::xbyak
+          PROT::JIT::llvmbased
           PROT::elf_loader
           PROT::hart
           fmt::fmt)

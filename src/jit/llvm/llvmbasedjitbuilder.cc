@@ -2,46 +2,35 @@
 #include "prot/isa.hh"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
+#include <cstdint>
+#include <vector>
 
 namespace prot::engine {
 
 namespace {
-
-llvm::Type* getSegmentType(llvm::LLVMContext& Ctx) {
-  if (auto* type = llvm::StructType::getTypeByName(Ctx, "SegmentManager")) {
-    return type;
-  }
-
-  llvm::StructType *segTy = llvm::StructType::create(Ctx, "SegmentManager");
-  llvm::Type *i8Ty = llvm::Type::getInt8Ty(Ctx);
-  llvm::Type *i8PtrTy = llvm::PointerType::getUnqual(i8Ty);
-
-  segTy->setBody({ i8PtrTy, llvm::Type::getInt32Ty(Ctx), llvm::Type::getInt32Ty(Ctx) });
-  return segTy;
-}
-
-llvm::Type* getMemoryType(llvm::LLVMContext& Ctx) {
-  if (auto* type = llvm::StructType::getTypeByName(Ctx, "MemoryManager")) {
-    return type;
-  }
-  llvm::StructType *memTy = llvm::StructType::create(Ctx, "MemoryManager");
-
-  memTy->setBody({ llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(getSegmentType(Ctx))), llvm::Type::getInt32Ty(Ctx) });
-  return memTy;
-}
-
-llvm::Type* getMemoryPointerType(llvm::LLVMContext& Ctx) {
-  return llvm::PointerType::getUnqual(getMemoryType(Ctx));
-}
-
 llvm::Type* getCPUStateType(llvm::LLVMContext& Ctx) {
   if (auto* type = llvm::StructType::getTypeByName(Ctx, "CPUState")) {
     return type;
   }
-  auto *cpuStructTy = llvm::StructType::create(Ctx, "CPUState");
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Ctx), 32);
-  cpuStructTy->setBody({regsArrTy, llvm::Type::getInt32Ty(Ctx), getMemoryPointerType(Ctx)});
-  return cpuStructTy;
+  llvm::Type* wordType = llvm::Type::getInt32Ty(Ctx);
+  llvm::Type* pcType = wordType;
+  llvm::Type* finishedType = llvm::Type::getInt1Ty(Ctx);
+  llvm::Type* memoryPtrType = llvm::PointerType::get(Ctx, 0);
+  llvm::Type* icountType = llvm::Type::getInt64Ty(Ctx);
+  llvm::ArrayType* regsArrayType = llvm::ArrayType::get(wordType, 32);
+
+  std::vector<llvm::Type*> structMemberTypes = {
+    regsArrayType,
+    pcType,
+    finishedType,
+    memoryPtrType,
+    icountType
+  };
+
+  llvm::StructType* cpuStateType =
+    llvm::StructType::create(Ctx, structMemberTypes, "CPUState", /*IsPacked=*/false);
+
+  return cpuStateType;
 }
 
 void updatePC(IRData& Data) {
@@ -594,240 +583,98 @@ void BGEUInstruction::buildIR(IRData& Data) {
 }
 
 void LBInstruction::buildIR(IRData& Data) {
-  isa::Operand rd = m_insn.rd();
-  isa::Operand rs1 = m_insn.rs1();
-  isa::Imm offset = m_insn.imm();
-  
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
 
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *rdPtr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  llvm::Value *rs1Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
-  llvm::Value *rs1Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
-  llvm::Value *readMemory = Data.Builder.CreateCall(Data.MemoryFunctions[0], {memoryManagerPtr, address});
-  
-  Data.Builder.CreateStore(Data.Builder.CreateSExt(readMemory, Data.Builder.getInt32Ty()), rdPtr);
+  Data.Builder.CreateCall(Data.MemoryFunctions[0], {instPtr, cpuStatePtr});
   
   updatePC(Data);
 }
 
 void LHInstruction::buildIR(IRData& Data) {
-  isa::Operand rd = m_insn.rd();
-  isa::Operand rs1 = m_insn.rs1();
-  isa::Imm offset = m_insn.imm();
-  
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
 
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *rdPtr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  llvm::Value *rs1Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
-  llvm::Value *rs1Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
-  llvm::Value *readMemory = Data.Builder.CreateCall(Data.MemoryFunctions[1], {memoryManagerPtr, address});
-  
-  Data.Builder.CreateStore(Data.Builder.CreateSExt(readMemory, Data.Builder.getInt32Ty()), rdPtr);
+  Data.Builder.CreateCall(Data.MemoryFunctions[1], {instPtr, cpuStatePtr});
   
   updatePC(Data);
 }
 
 void LWInstruction::buildIR(IRData& Data) {
-  isa::Operand rd = m_insn.rd();
-  isa::Operand rs1 = m_insn.rs1();
-  isa::Imm offset = m_insn.imm();
-  
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
 
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *rdPtr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  llvm::Value *rs1Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
-  llvm::Value *rs1Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
-  llvm::Value *readMemory = Data.Builder.CreateCall(Data.MemoryFunctions[2], {memoryManagerPtr, address});
-  
-  Data.Builder.CreateStore(Data.Builder.CreateSExt(readMemory, Data.Builder.getInt32Ty()), rdPtr);
+  Data.Builder.CreateCall(Data.MemoryFunctions[2], {instPtr, cpuStatePtr});
   
   updatePC(Data);
 }
 
 void LBUInstruction::buildIR(IRData& Data) {
-  isa::Operand rd = m_insn.rd();
-  isa::Operand rs1 = m_insn.rs1();
-  isa::Imm offset = m_insn.imm();
-  
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
 
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
-
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *rdPtr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  llvm::Value *rs1Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
-  llvm::Value *rs1Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
-  llvm::Value *readMemory = Data.Builder.CreateCall(Data.MemoryFunctions[0], {memoryManagerPtr, address});
-  
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(readMemory, Data.Builder.getInt32Ty()), rdPtr);
+  Data.Builder.CreateCall(Data.MemoryFunctions[3], {instPtr, cpuStatePtr});
   
   updatePC(Data);
 }
 
 void LHUInstruction::buildIR(IRData& Data) {
-  isa::Operand rd = m_insn.rd();
-  isa::Operand rs1 = m_insn.rs1();
-  isa::Imm offset = m_insn.imm();
-  
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
 
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *rdPtr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  llvm::Value *rs1Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
-  llvm::Value *rs1Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
-  llvm::Value *readMemory = Data.Builder.CreateCall(Data.MemoryFunctions[1], {memoryManagerPtr, address});
-  
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(readMemory, Data.Builder.getInt32Ty()), rdPtr);
+  Data.Builder.CreateCall(Data.MemoryFunctions[4], {instPtr, cpuStatePtr});
   
   updatePC(Data);
 }
 
 void SBInstruction::buildIR(IRData& Data) {
-  isa::Operand rs11 = m_insn.rs1();
-  isa::Operand rs12 = m_insn.rs2();
-  isa::Imm offset = m_insn.imm();
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
+
+  Data.Builder.CreateCall(Data.MemoryFunctions[5], {instPtr, cpuStatePtr});
   
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
-
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *rs11Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs11)});
-  llvm::Value *rs12Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs12)});
-
-                                          
-  llvm::Value *rs11Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs11Ptr);
-  llvm::Value *rs12Val = Data.Builder.CreateLoad(Data.Builder.getInt8Ty(), rs12Ptr);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs11Val, Data.Builder.getInt32(offset));
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[3], {memoryManagerPtr, address, rs12Val});
-
   updatePC(Data);
 }
 
 void SHInstruction::buildIR(IRData& Data) {
-  isa::Operand rs11 = m_insn.rs1();
-  isa::Operand rs12 = m_insn.rs2();
-  isa::Imm offset = m_insn.imm();
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
+
+  Data.Builder.CreateCall(Data.MemoryFunctions[6], {instPtr, cpuStatePtr});
   
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-  
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
-
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *rs11Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs11)});
-  llvm::Value *rs12Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs12)});
-
-                                          
-  llvm::Value *rs11Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs11Ptr);
-  llvm::Value *rs12Val = Data.Builder.CreateLoad(Data.Builder.getInt16Ty(), rs12Ptr);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs11Val, Data.Builder.getInt32(offset));
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[4], {memoryManagerPtr, address, rs12Val});
-
   updatePC(Data);
 }
 
 void SWInstruction::buildIR(IRData& Data) {
-  isa::Operand rs11 = m_insn.rs1();
-  isa::Operand rs12 = m_insn.rs2();
-  isa::Imm offset = m_insn.imm();
+  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
+      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
+      llvm::PointerType::get(Data.Builder.getContext(), 0)
+  );
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
+
+  Data.Builder.CreateCall(Data.MemoryFunctions[7], {instPtr, cpuStatePtr});
   
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
-
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
-  auto *cpuArg      = Data.CurrentFunction->getArg(0);
-
-  llvm::Value *regsPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 0);
-  llvm::Value *memoryManagerPtrPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 2);
-  llvm::Value *rs11Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs11)});
-  llvm::Value *rs12Ptr  = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                        {Data.Builder.getInt32(0), Data.Builder.getInt32(rs12)});
-
-                                          
-  llvm::Value *rs11Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs11Ptr);
-  llvm::Value *rs12Val = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs12Ptr);
-  llvm::Value *memoryManagerPtr = Data.Builder.CreateLoad(Data.Builder.getPtrTy(), memoryManagerPtrPtr);
-  llvm::Value *address = Data.Builder.CreateAdd(rs11Val, Data.Builder.getInt32(offset));
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[5], {memoryManagerPtr, address, rs12Val});
-
   updatePC(Data);
 }
 
@@ -1477,7 +1324,7 @@ void buildInstruction(IRData& Data, isa::Instruction insn) {
       return;
     case isa::Opcode::kNumOpcodes:
       break;
-    }
+  }
 }
 
 
