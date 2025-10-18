@@ -8,6 +8,7 @@
 #include "prot/elf_loader.hh"
 #include "prot/hart.hh"
 #include "prot/interpreter.hh"
+#include "prot/jit/xbyak.hh"
 #include "prot/memory.hh"
 
 int main(int argc, const char *argv[]) try {
@@ -15,6 +16,7 @@ int main(int argc, const char *argv[]) try {
   std::filesystem::path elfPath;
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
+  bool jit{};
 
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
@@ -27,14 +29,19 @@ int main(int argc, const char *argv[]) try {
         ->default_val(kDefaultStack)
         ->default_str(fmt::format("{:#x}", kDefaultStack));
 
+    app.add_flag("--jit", jit, "Use jit")->default_val(false);
+
     CLI11_PARSE(app, argc, argv);
   }
 
   auto hart = [&] {
     prot::ElfLoader loader{elfPath};
 
-    prot::Hart hart{prot::memory::makePaged(12),
-                    prot::engine::makeInterpreter()};
+    std::unique_ptr<prot::ExecEngine> engine =
+        jit ? prot::engine::makeXbyak()
+            : std::make_unique<prot::engine::Interpreter>();
+
+    prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};
     hart.load(loader);
     hart.setSP(stackTop);
 

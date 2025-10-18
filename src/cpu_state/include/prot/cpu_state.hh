@@ -15,8 +15,8 @@ struct CPUState final {
 
   std::array<isa::Word, kNumRegs> regs{};
   isa::Word pc{};
-  Memory *memory{nullptr};
   bool finished{false};
+  Memory *memory{nullptr};
   isa::Icount icount{0};
 
   explicit CPUState(Memory *mem) : memory(mem) {}

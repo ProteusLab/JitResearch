@@ -219,12 +219,10 @@ void doXORI(const isa::Instruction &inst, CPUState &state) {
   executeRegisterImmOp(inst, state, std::bit_xor<>{});
 }
 
-class Interpreter : public ExecEngine {
+struct ExecHandlersMap final {
   using Handler = void (*)(const isa::Instruction &, CPUState &);
-  std::array<Handler, toUnderlying(isa::Opcode::kNumOpcodes)> m_handlers{};
 
-public:
-  Interpreter() {
+  constexpr ExecHandlersMap() {
     using enum isa::Opcode;
 #define PROT_SET_HANDLER(name) m_handlers[toUnderlying(k##name)] = &do##name;
     PROT_SET_HANDLER(ADD)
@@ -272,20 +270,30 @@ public:
     PROT_SET_HANDLER(XORI)
 #undef PROT_SET_HANDLER
   }
-  void execute(CPUState &cpu, const isa::Instruction &insn) override {
-    const auto handler = m_handlers[toUnderlying(insn.opcode())];
 
-    auto oldPC = cpu.getPC();
-    assert(handler != nullptr);
-    handler(insn, cpu);
-    if (oldPC == cpu.getPC()) {
-      cpu.setPC(oldPC + sizeof(isa::Word));
-    }
+  [[nodiscard]] Handler get(isa::Opcode opcode) const {
+    assert(toUnderlying(opcode) < m_handlers.size());
+    auto toRet = m_handlers[toUnderlying(opcode)];
+    assert(toRet != nullptr);
+    return toRet;
   }
+
+private:
+  std::array<Handler, toUnderlying(isa::Opcode::kNumOpcodes)> m_handlers{};
 };
+
+constexpr ExecHandlersMap kExecHandlers{};
 } // namespace
 
-std::unique_ptr<ExecEngine> makeInterpreter() {
-  return std::make_unique<Interpreter>();
+void Interpreter::execute(CPUState &cpu, const isa::Instruction &insn) {
+  const auto handler = kExecHandlers.get(insn.opcode());
+
+  auto oldPC = cpu.getPC();
+
+  handler(insn, cpu);
+
+  if (oldPC == cpu.getPC()) {
+    cpu.setPC(oldPC + sizeof(isa::Word));
+  }
 }
 } // namespace prot::engine

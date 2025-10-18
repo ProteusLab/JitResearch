@@ -6,6 +6,7 @@
 
 #include <bit>
 #include <optional>
+#include <stdexcept>
 
 static_assert(std::endian::native == std::endian::little,
               "Sorry, little endian machines are only supported");
@@ -125,6 +126,29 @@ enum class Opcode : uint16_t {
 
   kNumOpcodes,
 };
+
+constexpr bool isTerminator(Opcode opc) {
+  if (opc == Opcode::kNumOpcodes) {
+    throw std::invalid_argument{"Unexpected opcode"};
+  }
+  switch (opc) {
+  case Opcode::kBEQ:
+  case Opcode::kBGE:
+  case Opcode::kBGEU:
+  case Opcode::kBLT:
+  case Opcode::kBLTU:
+  case Opcode::kBNE:
+  case Opcode::kEBREAK:
+  case Opcode::kECALL:
+  case Opcode::kFENCE:
+  case Opcode::kJAL:
+  case Opcode::kJALR:
+    return true;
+  default:
+    break;
+  }
+  return false;
+}
 
 struct Instruction final {
   using enum Opcode;
