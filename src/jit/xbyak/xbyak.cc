@@ -114,10 +114,13 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   [[maybe_unused]] auto temp3 = frame.t[2].cvt32();
 
   auto getReg = [&frame, this](std::size_t regId) {
-    return dword[frame.p[0] + sizeof(isa::Word) * regId];
+    return dword[frame.p[0] + offsetof(CPUState, regs) +
+                 sizeof(isa::Word) * regId];
   };
 
-  auto getPc = std::bind_front(getReg, CPUState::kNumRegs);
+  auto getPc = [&frame, this] {
+    return dword[frame.p[0] + offsetof(CPUState, pc)];
+  };
 
   for (const auto &insn : info.insns) {
     auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
@@ -344,6 +347,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
     if (!isa::changesPC(insn.opcode())) {
       add(getPc(), sizeof(isa::Word));
     }
+    inc(qword[frame.p[0] + offsetof(CPUState, icount)]);
   }
 
   frame.close();
