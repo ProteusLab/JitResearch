@@ -22,6 +22,14 @@ void executeRegisterImmOp(const isa::Instruction &inst, CPUState &state,
   state.setReg(inst.rd(), op(rs1, imm));
 }
 
+template <std::regular_invocable<isa::Word, isa::Operand> Func>
+void executeRegisterImmRegOp(const isa::Instruction &inst, CPUState &state,
+                             Func op) {
+  auto rs1 = state.getReg(inst.rs1());
+  auto imm = inst.rs2();
+  state.setReg(inst.rd(), op(rs1, imm));
+}
+
 void doADD(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, std::plus<>{});
 }
@@ -45,10 +53,9 @@ template <std::regular_invocable<isa::Word, isa::Word> Cond>
 void brHelper(const isa::Instruction &inst, CPUState &state, Cond cond) {
   auto lhs = state.getReg(inst.rs1());
   auto rhs = state.getReg(inst.rs2());
+  const isa::Addr offset = cond(lhs, rhs) ? inst.imm() : sizeof(isa::Word);
 
-  if (cond(lhs, rhs)) {
-    state.setPC(state.getPC() + inst.imm());
-  }
+  state.setPC(state.getPC() + offset);
 }
 
 void doBEQ(const isa::Instruction &inst, CPUState &state) {
@@ -73,7 +80,7 @@ void doBNE(const isa::Instruction &inst, CPUState &state) {
 void doEBREAK(const isa::Instruction & /*unused*/, CPUState & /*unused*/) {}
 
 void doECALL(const isa::Instruction & /*unused*/, CPUState &state) {
-  state.finished = true;
+  state.emulateSysCall();
 }
 
 void doFENCE(const isa::Instruction & /*unused*/, CPUState & /*unused*/) {
@@ -100,7 +107,9 @@ template <typename T, bool Signed = true>
 void loadHelper(const isa::Instruction &inst, CPUState &state) {
   auto rs = state.getReg(inst.rs1());
   auto addr = rs + inst.imm();
-  auto loaded = state.memory->read<T>(addr);
+  // NOLINTNEXTLINE
+  isa::Word loaded = state.memory->read<T>(addr);
+
   if constexpr (Signed) {
     loaded = isa::signExtend<sizeofBits<isa::Word>(), sizeofBits<T>()>(loaded);
   }
@@ -121,7 +130,7 @@ void doLHU(const isa::Instruction &inst, CPUState &state) {
   loadHelper<isa::Half, false>(inst, state);
 }
 void doLW(const isa::Instruction &inst, CPUState &state) {
-  loadHelper<isa::Half, false>(inst, state);
+  loadHelper<isa::Word, false>(inst, state);
 }
 
 void doLUI(const isa::Instruction &inst, CPUState &state) {
@@ -168,7 +177,7 @@ void doSLL(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, sllHelper);
 }
 void doSLLI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmOp(inst, state, sllHelper);
+  executeRegisterImmRegOp(inst, state, sllHelper);
 }
 
 void doSLT(const isa::Instruction &inst, CPUState &state) {
@@ -194,7 +203,7 @@ void doSRA(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, sraHelper);
 }
 void doSRAI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmOp(inst, state, sraHelper);
+  executeRegisterImmRegOp(inst, state, sraHelper);
 }
 
 isa::Word srlHelper(isa::Word lhs, isa::Word rhs) {
@@ -205,7 +214,7 @@ void doSRL(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, srlHelper);
 }
 void doSRLI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmOp(inst, state, srlHelper);
+  executeRegisterImmRegOp(inst, state, srlHelper);
 }
 
 void doSUB(const isa::Instruction &inst, CPUState &state) {
@@ -292,7 +301,7 @@ void Interpreter::execute(CPUState &cpu, const isa::Instruction &insn) {
 
   handler(insn, cpu);
 
-  if (oldPC == cpu.getPC()) {
+  if (!isa::changesPC(insn.opcode())) {
     cpu.setPC(oldPC + sizeof(isa::Word));
   }
 }
