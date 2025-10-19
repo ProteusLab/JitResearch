@@ -1,38 +1,90 @@
 #include "prot/isa.hh"
 
+#include <algorithm>
+#include <array>
+#include <functional>
 #include <optional>
-#include <string>
-#include <type_traits>
-#include <unordered_map>
+#include <ranges>
+#include <string_view>
 
 namespace prot::isa {
+namespace {
+class Opc2StrMap final
+    : public std::array<std::string_view, toUnderlying(Opcode::kNumOpcodes)> {
+public:
+  constexpr Opc2StrMap() {
+    using enum Opcode;
+    fill("");
+#define PROT_MAKE_OPC(opc) at(toUnderlying(k##opc)) = #opc;
 
-static const std::unordered_map<Opcode, std::string> kOpc2str{
-    {Opcode::kADD, "ADD"},       {Opcode::kADDI, "ADDI"},
-    {Opcode::kAND, "AND"},       {Opcode::kANDI, "ANDI"},
-    {Opcode::kAUIPC, "AUIPC"},   {Opcode::kBEQ, "BEQ"},
-    {Opcode::kBGE, "BGE"},       {Opcode::kBGEU, "BGEU"},
-    {Opcode::kBLT, "BLT"},       {Opcode::kBLTU, "BLTU"},
-    {Opcode::kBNE, "BNE"},       {Opcode::kEBREAK, "EBREAK"},
-    {Opcode::kECALL, "ECALL"},   {Opcode::kFENCE, "FENCE"},
-    {Opcode::kJAL, "JAL"},       {Opcode::kJALR, "JALR"},
-    {Opcode::kLB, "LB"},         {Opcode::kLBU, "LBU"},
-    {Opcode::kLH, "LH"},         {Opcode::kLHU, "LHU"},
-    {Opcode::kLUI, "LUI"},       {Opcode::kLW, "LW"},
-    {Opcode::kOR, "OR"},         {Opcode::kORI, "ORI"},
-    {Opcode::kPAUSE, "PAUSE"},   {Opcode::kSB, "SB"},
-    {Opcode::kSBREAK, "SBREAK"}, {Opcode::kSCALL, "SCALL"},
-    {Opcode::kSH, "SH"},         {Opcode::kSLL, "SLL"},
-    {Opcode::kSLLI, "SLLI"},     {Opcode::kSLT, "SLT"},
-    {Opcode::kSLTI, "SLTI"},     {Opcode::kSLTIU, "SLTIU"},
-    {Opcode::kSLTU, "SLTU"},     {Opcode::kSRA, "SRA"},
-    {Opcode::kSRAI, "SRAI"},     {Opcode::kSRL, "SRL"},
-    {Opcode::kSRLI, "SRLI"},     {Opcode::kSUB, "SUB"},
-    {Opcode::kSW, "SW"},         {Opcode::kXOR, "XOR"},
-    {Opcode::kXORI, "XORI"},
+    PROT_MAKE_OPC(ADD)
+    PROT_MAKE_OPC(ADDI)
+    PROT_MAKE_OPC(AND)
+    PROT_MAKE_OPC(ANDI)
+    PROT_MAKE_OPC(AUIPC)
+    PROT_MAKE_OPC(BEQ)
+    PROT_MAKE_OPC(BGE)
+    PROT_MAKE_OPC(BGEU)
+    PROT_MAKE_OPC(BLT)
+    PROT_MAKE_OPC(BLTU)
+    PROT_MAKE_OPC(BNE)
+    PROT_MAKE_OPC(EBREAK)
+    PROT_MAKE_OPC(ECALL)
+    PROT_MAKE_OPC(FENCE)
+    PROT_MAKE_OPC(JAL)
+    PROT_MAKE_OPC(JALR)
+    PROT_MAKE_OPC(LB)
+    PROT_MAKE_OPC(LBU)
+    PROT_MAKE_OPC(LH)
+    PROT_MAKE_OPC(LHU)
+    PROT_MAKE_OPC(LUI)
+    PROT_MAKE_OPC(LW)
+    PROT_MAKE_OPC(OR)
+    PROT_MAKE_OPC(ORI)
+    PROT_MAKE_OPC(PAUSE)
+    PROT_MAKE_OPC(SB)
+    PROT_MAKE_OPC(SBREAK)
+    PROT_MAKE_OPC(SCALL)
+    PROT_MAKE_OPC(SH)
+    PROT_MAKE_OPC(SLL)
+    PROT_MAKE_OPC(SLLI)
+    PROT_MAKE_OPC(SLT)
+    PROT_MAKE_OPC(SLTI)
+    PROT_MAKE_OPC(SLTIU)
+    PROT_MAKE_OPC(SLTU)
+    PROT_MAKE_OPC(SRA)
+    PROT_MAKE_OPC(SRAI)
+    PROT_MAKE_OPC(SRL)
+    PROT_MAKE_OPC(SRLI)
+    PROT_MAKE_OPC(SUB)
+    PROT_MAKE_OPC(SW)
+    PROT_MAKE_OPC(XOR)
+    PROT_MAKE_OPC(XORI)
+
+#undef PROT_MAKE_OPC
+  }
+
+  [[nodiscard]] constexpr auto getName(Opcode opc) const {
+    const auto id = toUnderlying(opc);
+    if (id > size()) {
+      throw std::invalid_argument{"Invalid opcode"};
+    }
+
+    return (*this)[id];
+  }
 };
 
-std::string strOpc(Opcode opc) { return kOpc2str.at(opc); }
+constexpr Opc2StrMap kOpc2Str;
+static_assert(toUnderlying(Opcode::kNumOpcodes) > toUnderlying(Opcode::kADD));
+static_assert(
+    std::ranges::none_of(
+        std::views::iota(0U, toUnderlying(Opcode::kNumOpcodes)),
+        std::ranges::empty,
+        [](auto id) { return kOpc2Str.getName(static_cast<Opcode>(id)); }),
+    "Some of the opcodes were not handled in Opc2Str map. Consider updating");
+} // namespace
+
+std::string_view strOpc(Opcode opc) { return kOpc2Str.getName(opc); }
 
 // Automatically Generated Decoder
 std::optional<Instruction> Instruction::decode(Word word) {

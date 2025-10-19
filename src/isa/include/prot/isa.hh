@@ -7,6 +7,7 @@
 #include <bit>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 
 static_assert(std::endian::native == std::endian::little,
               "Sorry, little endian machines are only supported");
@@ -137,6 +138,8 @@ enum class Opcode : uint16_t {
   kNumOpcodes,
 };
 
+std::string_view strOpc(Opcode opc);
+
 constexpr bool isTerminator(Opcode opc) {
   if (opc == Opcode::kNumOpcodes) {
     throw std::invalid_argument{"Unexpected opcode"};
@@ -192,6 +195,7 @@ struct Instruction final {
   [[nodiscard]] Operand rs1() const { return m_rs1; }
   [[nodiscard]] Operand rs2() const { return m_rs2; }
   [[nodiscard]] Imm imm() const { return m_imm; }
+  [[nodiscard]] std::string_view mnemonic() const { return strOpc(m_opc); }
 
 private:
   Instruction() = default;
