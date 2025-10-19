@@ -30,19 +30,21 @@ constexpr auto toUnderlying(T val)
 
 namespace isa {
 
-constexpr std::uint32_t ones(uint32_t num) {
-  return (std::uint32_t{1} << num) - std::uint32_t{1};
+consteval std::uint32_t ones(std::size_t Num) {
+  if (Num == sizeofBits<std::uint32_t>()) {
+    return ~std::uint32_t{};
+  }
+  return (std::uint32_t{1} << Num) - std::uint32_t{1};
 }
 
-template <std::size_t Msb, std::size_t Lsb> constexpr std::uint32_t getMask() {
-  static_assert(Msb >= Lsb, "Error : illegal bits range");
+consteval std::uint32_t getMask(std::size_t Msb, std::size_t Lsb) {
   return ones(Msb - Lsb + 1) << Lsb;
 }
 
 template <std::size_t Msb, std::size_t Lsb>
 constexpr std::uint32_t slice(std::uint32_t word) {
   static_assert(Msb >= Lsb, "Error : illegal bits range");
-  return (word & getMask<Msb, Lsb>()) >> Lsb;
+  return (word & getMask(Msb, Lsb)) >> Lsb;
 }
 
 // RISCV-32-I
@@ -148,6 +150,25 @@ constexpr bool isTerminator(Opcode opc) {
     break;
   }
   return false;
+}
+
+constexpr bool changesPC(Opcode opc) {
+  if (opc == Opcode::kNumOpcodes) {
+    throw std::invalid_argument{"Unexpected opcode"};
+  }
+  switch (opc) {
+  case Opcode::kBEQ:
+  case Opcode::kBGE:
+  case Opcode::kBGEU:
+  case Opcode::kBLT:
+  case Opcode::kBLTU:
+  case Opcode::kBNE:
+  case Opcode::kJAL:
+  case Opcode::kJALR:
+    return true;
+  default:
+    return false;
+  }
 }
 
 struct Instruction final {
