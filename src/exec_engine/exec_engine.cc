@@ -9,7 +9,7 @@ void ExecEngine::step(CPUState &cpu) {
   auto pc = cpu.getPC();
 
   if (pc % sizeof(isa::Word) != 0) {
-    throw std::runtime_error{"Misaligned PC detected"};
+    throw std::runtime_error{fmt::format("Misaligned PC detected: {:#x}", pc)};
   }
 
   const auto bytes = cpu.memory->read<isa::Word>(cpu.getPC());
