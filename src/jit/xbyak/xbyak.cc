@@ -103,9 +103,11 @@ template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
   return state.memory->read<T>(addr);
 }
 
+void syscallHelper(CPUState &state) { state.emulateSysCall(); }
+
 CodeHolder XByakJit::translate(const BBInfo &info) {
   reset(); // XByak specific (CodeGenerator is about a PAGE size!!, so reuse it)
-  Xbyak::util::StackFrame frame{this, 3, 3};
+  Xbyak::util::StackFrame frame{this, 3, 3 | Xbyak::util::UseRCX};
 
   [[maybe_unused]] auto temp1 = frame.t[0].cvt32();
   [[maybe_unused]] auto temp2 = frame.t[1].cvt32();
@@ -160,7 +162,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   case kB##Op: {                                                               \
     getRs1(temp1);                                                             \
     cmp(temp1, getReg(insn.rs2()));                                            \
-    xor_(temp1, temp1);                                                        \
+    mov(temp1, sizeof(isa::Word));                                             \
     mov(temp2, insn.imm());                                                    \
     cmov##cc(temp1, temp2);                                                    \
                                                                                \
@@ -169,16 +171,20 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   }
       PROT_MAKE_IMPL(EQ, z)
       PROT_MAKE_IMPL(GE, ge)
-      PROT_MAKE_IMPL(GEU, a)
+      PROT_MAKE_IMPL(GEU, ae)
       PROT_MAKE_IMPL(LT, l)
       PROT_MAKE_IMPL(LTU, b)
       PROT_MAKE_IMPL(NE, ne)
 #undef PROT_MAKE_IMPL
 
     case kEBREAK:
+      break;
     case kECALL: {
       // set finished
-      mov(byte[frame.p[0] + (CPUState::kNumRegs + 1) * sizeof(isa::Word)], 1);
+      mov(frame.t[0], reinterpret_cast<std::uintptr_t>(&syscallHelper));
+      push(frame.p[0]);
+      call(frame.t[0]);
+      pop(frame.p[0]);
       break;
     }
     case kFENCE: {
@@ -205,7 +211,9 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       break;
     }
     case kLUI: {
-      mov(getReg(insn.rd()), insn.imm());
+      if (insn.rd() != 0) {
+        mov(getReg(insn.rd()), insn.imm());
+      }
       break;
     }
     case kLB:
@@ -234,16 +242,13 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
 
       push(frame.p[0]);
       mov(frame.t[0], helper);
-      xor_(eax, eax);
       call(frame.t[0]);
       pop(frame.p[0]);
-      switch (auto op = insn.opcode()) {
+      switch (insn.opcode()) {
       case kLB:
-      case kLH:
         cbw();
-        if (op == kLB) {
-          break;
-        }
+        [[fallthrough]];
+      case kLH:
         cwde();
         break;
       default:
@@ -263,14 +268,14 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   case k##Op: {                                                                \
     getRs1(temp1);                                                             \
     cmp(temp1, getReg(insn.rs2()));                                            \
-    xor_(temp1, temp1);                                                        \
+    mov(temp1, 0);                                                             \
     set##cc(temp1.cvt8());                                                     \
     setRd(temp1);                                                              \
     break;                                                                     \
   }                                                                            \
   case k##Op2: {                                                               \
     cmp(getReg(insn.rs1()), insn.imm());                                       \
-    xor_(temp1, temp1);                                                        \
+    mov(temp1, 0);                                                             \
     set##cc(temp1.cvt8());                                                     \
     setRd(temp1);                                                              \
     break;                                                                     \
@@ -283,15 +288,14 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   case kS##Op: {                                                               \
     getRs1(temp1);                                                             \
     getRs2(ecx);                                                               \
-    and_(ecx, 0b11111);                                                        \
     op(temp1, cl);                                                             \
     setRd(temp1);                                                              \
     break;                                                                     \
   }                                                                            \
   case kS##Op##I: {                                                            \
     getRs1(temp1);                                                             \
-    /* FIXME: invalid decoding */                                              \
     op(temp1, insn.rs2());                                                     \
+    setRd(temp1);                                                              \
     break;                                                                     \
   }
 
@@ -337,15 +341,15 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
     case kNumOpcodes:
       throw std::invalid_argument{"Unexpected insn id"};
     }
-  } // namespace
+    if (!isa::changesPC(insn.opcode())) {
+      add(getPc(), sizeof(isa::Word));
+    }
+  }
+
   frame.close();
   ready();
-  fmt::println("CODE DUMP");
-  dump();
-  fmt::println("CODE DUMP END");
 
   // Copy data to holder
-
   return CodeHolder{std::as_bytes(std::span{getCode(), getSize()})};
 } // namespace
 } // namespace
