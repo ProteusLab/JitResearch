@@ -30,21 +30,30 @@ constexpr auto toUnderlying(T val)
 
 namespace isa {
 
-consteval std::uint32_t ones(std::size_t Num) {
-  if (Num == sizeofBits<std::uint32_t>()) {
-    return ~std::uint32_t{};
+template <std::unsigned_integral T> consteval T ones(std::size_t Num) {
+  if (Num > sizeofBits<T>()) {
+    // OK, we're in constexpr context
+    throw "Num exceeds amount of bits";
   }
-  return (std::uint32_t{1} << Num) - std::uint32_t{1};
+  if (Num == sizeofBits<T>()) {
+    return ~T{};
+  }
+  return (T{1} << Num) - std::uint32_t{1};
 }
 
-consteval std::uint32_t getMask(std::size_t Msb, std::size_t Lsb) {
-  return ones(Msb - Lsb + 1) << Lsb;
+template <std::unsigned_integral T>
+consteval T getMask(std::size_t Msb, std::size_t Lsb) {
+  if (Msb < Lsb) {
+    throw "Illegal bits range";
+  }
+  return ones<T>(Msb - Lsb + 1) << Lsb;
 }
 
-template <std::size_t Msb, std::size_t Lsb>
-constexpr std::uint32_t slice(std::uint32_t word) {
+template <std::size_t Msb, std::size_t Lsb, std::unsigned_integral T>
+constexpr T slice(T word) {
   static_assert(Msb >= Lsb, "Error : illegal bits range");
-  return (word & getMask(Msb, Lsb)) >> Lsb;
+  static_assert(Msb <= sizeofBits<T>());
+  return (word & getMask<T>(Msb, Lsb)) >> Lsb;
 }
 
 // RISCV-32-I
@@ -54,7 +63,7 @@ using Word = std::uint32_t;
 using Addr = Word;
 using Half = std::uint16_t;
 using Byte = std::uint8_t;
-using Imm = std::int32_t;
+using Imm = std::uint32_t;
 using Operand = std::uint8_t;
 
 constexpr bool signedLess(isa::Word lhs, isa::Word rhs) {
@@ -63,19 +72,18 @@ constexpr bool signedLess(isa::Word lhs, isa::Word rhs) {
   return static_cast<Signed>(lhs) < static_cast<Signed>(rhs);
 }
 
-template <std::size_t NewSize, std::size_t OldSize>
-constexpr Word signExtend(Word val) {
+template <std::size_t NewSize, std::size_t OldSize, std::unsigned_integral T>
+constexpr T signExtend(T val) {
   static_assert(NewSize >= OldSize, "Trying to sign extend to smaller size");
   static_assert(OldSize > 0, "Initial size must be non-zero");
-  static_assert(NewSize <= sizeofBits<isa::Word>(),
-                "newSize is out of bits range");
+  static_assert(NewSize <= sizeofBits<T>(), "newSize is out of bits range");
 
   if constexpr (NewSize == OldSize) {
     return val;
   } else {
-    Word zeroed = slice<OldSize - 1, 0>(val);
-    constexpr Word mask = static_cast<Word>(1) << (OldSize - 1);
-    Word res = (zeroed ^ mask) - mask;
+    T zeroed = slice<OldSize - 1, 0>(val);
+    constexpr T mask = static_cast<T>(1) << (OldSize - 1);
+    T res = (zeroed ^ mask) - mask;
 
     return slice<NewSize - 1, 0>(res);
   }
