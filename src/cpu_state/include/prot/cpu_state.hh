@@ -31,7 +31,16 @@ struct CPUState final {
     }
   }
 
+  [[nodiscard]] isa::Word getSysCallNum() const { return getReg(17); }
+  [[nodiscard]] isa::Word getSysCallArg(std::size_t num) const;
+  [[nodiscard]] isa::Word getSysCallRet() const { return getReg(10); }
+
+  void emulateSysCall();
+
   void dump(std::ostream &ost) const;
+
+private:
+  void doExit(isa::Word code);
 };
 } // namespace prot
 
