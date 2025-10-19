@@ -116,6 +116,7 @@ std::optional<Instruction> Instruction::decode(Word word) {
     instr.m_opc = Opcode::kSLLI;
     instr.m_rd = std::bit_cast<int32_t>(slice<11, 7>(word) << 0) >> 0;
     instr.m_rs1 = std::bit_cast<int32_t>(slice<19, 15>(word) << 0) >> 0;
+    instr.m_rs2 = std::bit_cast<int32_t>(slice<24, 20>(word) << 0) >> 0;
     return instr;
   }
   case 0b10000000010011: {
@@ -281,6 +282,7 @@ std::optional<Instruction> Instruction::decode(Word word) {
     instr.m_opc = Opcode::kSRLI;
     instr.m_rd = std::bit_cast<int32_t>(slice<11, 7>(word) << 0) >> 0;
     instr.m_rs1 = std::bit_cast<int32_t>(slice<19, 15>(word) << 0) >> 0;
+    instr.m_rs2 = std::bit_cast<int32_t>(slice<24, 20>(word) << 0) >> 0;
     return instr;
   }
   case 0b1000000000000000101000000010011: {
@@ -289,6 +291,7 @@ std::optional<Instruction> Instruction::decode(Word word) {
     instr.m_opc = Opcode::kSRAI;
     instr.m_rd = std::bit_cast<int32_t>(slice<11, 7>(word) << 0) >> 0;
     instr.m_rs1 = std::bit_cast<int32_t>(slice<19, 15>(word) << 0) >> 0;
+    instr.m_rs2 = std::bit_cast<int32_t>(slice<24, 20>(word) << 0) >> 0;
     return instr;
   }
   case 0b110011: {
