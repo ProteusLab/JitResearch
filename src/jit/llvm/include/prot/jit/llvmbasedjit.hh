@@ -7,7 +7,7 @@
 #include "prot/exec_engine.hh"
 
 namespace prot::engine {  
-llvm::Expected<std::unique_ptr<ExecEngine>> makeLLVMBasedJIT(int argc, const char** argv);
+llvm::Expected<std::unique_ptr<ExecEngine>> makeLLVMBasedJIT();
 } // end namespace prot::engine
 
 #endif // PROT_JIT_LLVMBASEDJIT_HH_INCLUDED

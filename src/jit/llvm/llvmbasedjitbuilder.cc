@@ -1,5 +1,6 @@
 #include "prot/jit/llvmbasedjitbuilder.hh"
 #include "prot/isa.hh"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
 #include <cstdint>
@@ -31,6 +32,73 @@ llvm::Type* getCPUStateType(llvm::LLVMContext& Ctx) {
     llvm::StructType::create(Ctx, structMemberTypes, "CPUState", /*IsPacked=*/false);
 
   return cpuStateType;
+}
+
+llvm::Type* getInstructionType(llvm::LLVMContext& Ctx) {
+  if (auto* type = llvm::StructType::getTypeByName(Ctx, "Instruction")) {
+    return type;
+  }
+  llvm::Type* opcodeType = llvm::Type::getInt16Ty(Ctx);
+  llvm::Type* operandType = llvm::Type::getInt8Ty(Ctx);
+  llvm::Type* immType = llvm::Type::getInt32Ty(Ctx);
+  
+
+  std::vector<llvm::Type*> structMemberTypes = {
+    opcodeType,
+    operandType,
+    operandType,
+    operandType,
+    immType
+  };
+
+  llvm::StructType* instructionType =
+    llvm::StructType::create(Ctx, structMemberTypes, "Instruction", /*IsPacked=*/false);
+
+  return instructionType;
+}
+
+void generateLoadStoreCall(isa::Instruction const& m_insn, IRData& data, size_t MemFuncIdx) {
+  llvm::Value *cpuStatePtr = data.CurrentFunction->getArg(0);
+
+  llvm::Value *instructionValue = llvm::UndefValue::get(getInstructionType(data.Builder.getContext()));
+  
+  instructionValue = data.Builder.CreateInsertValue(
+    instructionValue, 
+    llvm::ConstantInt::get(llvm::Type::getInt16Ty(data.Builder.getContext()), static_cast<uint16_t>(m_insn.opcode())),
+    {0}
+  );
+  
+  instructionValue = data.Builder.CreateInsertValue(
+    instructionValue,
+    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rd())),
+    {1}
+  );
+  
+  instructionValue = data.Builder.CreateInsertValue(
+    instructionValue,
+    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rs1())),
+    {2}
+  );
+  
+  instructionValue = data.Builder.CreateInsertValue(
+    instructionValue,
+    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rs2())),
+    {3}
+  );
+  
+  instructionValue = data.Builder.CreateInsertValue(
+    instructionValue,
+    llvm::ConstantInt::get(llvm::Type::getInt32Ty(data.Builder.getContext()), static_cast<uint32_t>(m_insn.imm())),
+    {4}
+  );
+
+  llvm::Value *instructionAlloca = data.Builder.CreateAlloca(
+    getInstructionType(data.Builder.getContext())
+  );
+
+  data.Builder.CreateStore(instructionValue, instructionAlloca);
+
+  data.Builder.CreateCall(data.MemoryFunctions[MemFuncIdx], {instructionAlloca, cpuStatePtr});
 }
 
 void updatePC(IRData& Data) {
@@ -304,7 +372,10 @@ struct EBREAKInstruction : Instruction {
 void LUIInstruction::buildIR(IRData& Data) {
   isa::Imm imm = m_insn.imm();
   isa::Operand rd = m_insn.rd();
-
+  if (rd == 0) {
+    updatePC(Data);
+    return;
+  }
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
   auto *cpuArg = Data.CurrentFunction->getArg(0);
@@ -330,8 +401,10 @@ void AUIPCInstruction::buildIR(IRData& Data) {
                                         {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
 
   llvm::Value *pcPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), pcPtr);                                      
-  Data.Builder.CreateStore(Data.Builder.CreateAdd(Data.Builder.getInt32(imm), pcVal), rdPtr);
+  llvm::Value *pcVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), pcPtr);                    
+  if (rd != 0) {
+    Data.Builder.CreateStore(Data.Builder.CreateAdd(Data.Builder.getInt32(imm), pcVal), rdPtr);
+  }                  
   
   llvm::Value *newPCVal = Data.Builder.CreateAdd(pcVal, Data.Builder.getInt32(4));
   Data.Builder.CreateStore(newPCVal, pcPtr);
@@ -355,9 +428,11 @@ void JALInstruction::buildIR(IRData& Data) {
                                         {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
 
   llvm::Value *pcPtr = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), pcPtr);                                      
-  Data.Builder.CreateStore(Data.Builder.CreateAdd(Data.Builder.getInt32(4), pcVal), rdPtr);
+  llvm::Value *pcVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), pcPtr);      
   Data.Builder.CreateStore(Data.Builder.CreateAdd(Data.Builder.getInt32(offset), pcVal), pcPtr);
+  if (rd != 0) {
+    Data.Builder.CreateStore(Data.Builder.CreateAdd(Data.Builder.getInt32(4), pcVal), rdPtr);
+  }                                ;
 }
 
 void JALRInstruction::buildIR(IRData& Data) {
@@ -383,7 +458,8 @@ void JALRInstruction::buildIR(IRData& Data) {
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(Data.Builder.CreateAdd(pcVal, Data.Builder.getInt32(4)), rdPtr);
+  if (rd != 0)
+    Data.Builder.CreateStore(Data.Builder.CreateAdd(pcVal, Data.Builder.getInt32(4)), rdPtr);
 
   llvm::Value *target = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(offset));
   llvm::Value *targetAligned = Data.Builder.CreateAnd(target, Data.Builder.getInt32(~1U));
@@ -583,98 +659,42 @@ void BGEUInstruction::buildIR(IRData& Data) {
 }
 
 void LBInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[0], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 0);
   updatePC(Data);
 }
 
 void LHInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[1], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 1);
   updatePC(Data);
 }
 
 void LWInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[2], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 2);
   updatePC(Data);
 }
 
 void LBUInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[3], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 3);
   updatePC(Data);
 }
 
 void LHUInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[4], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 4);
   updatePC(Data);
 }
 
 void SBInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[5], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 5);
   updatePC(Data);
 }
 
 void SHInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[6], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 6);
   updatePC(Data);
 }
 
 void SWInstruction::buildIR(IRData& Data) {
-  llvm::Value *instPtr = Data.Builder.CreatePointerCast(
-      Data.Builder.getInt64(reinterpret_cast<uintptr_t>(&m_insn)),
-      llvm::PointerType::get(Data.Builder.getContext(), 0)
-  );
-  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
-
-  Data.Builder.CreateCall(Data.MemoryFunctions[7], {instPtr, cpuStatePtr});
-  
+  generateLoadStoreCall(m_insn, Data, 7);
   updatePC(Data);
 }
 
@@ -700,8 +720,9 @@ void ADDIInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAdd(rs1Val, Data.Builder.getInt32(imm));
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -726,7 +747,8 @@ void SLTIInstruction::buildIR(IRData& Data) {
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
   llvm::Value *srcValue = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);  
   llvm::Value *cond = Data.Builder.CreateICmpSLT(srcValue, Data.Builder.getInt32(imm));
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
+  if (rd != 0)
+    Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
 }
@@ -751,7 +773,8 @@ void SLTIUInstruction::buildIR(IRData& Data) {
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rs1)});
   llvm::Value *srcValue = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs1Ptr);  
   llvm::Value *cond = Data.Builder.CreateICmpULT(srcValue, Data.Builder.getInt32(imm));
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
+  if (rd != 0)
+    Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
 }
@@ -779,7 +802,8 @@ void XORIInstruction::buildIR(IRData& Data) {
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+  if (rd != 0)                                    
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -807,7 +831,8 @@ void ORIInstruction::buildIR(IRData& Data) {
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+  if (rd != 0)                                    
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -833,8 +858,9 @@ void ANDIInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAnd(rs1Val, Data.Builder.getInt32(imm));
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -856,8 +882,9 @@ void SLLIInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateShl(rs1Val, Data.Builder.getInt32(imm));
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -879,8 +906,9 @@ void SRLIInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateLShr(rs1Val, Data.Builder.getInt32(imm));
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -902,8 +930,9 @@ void SRAIInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAShr(rs1Val, Data.Builder.getInt32(imm));
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -929,8 +958,9 @@ void ADDInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAdd(reg1Val, reg2Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -956,8 +986,9 @@ void SUBInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateSub(reg1Val, reg2Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -982,8 +1013,9 @@ void SLLInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateShl(rs11Val, rs12Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1008,8 +1040,9 @@ void SRLInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateLShr(rs11Val, rs12Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1034,8 +1067,9 @@ void SRAInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAShr(rs11Val, rs12Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+    {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1061,8 +1095,9 @@ void XORInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateXor(reg1Val, reg2Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+      Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1088,8 +1123,9 @@ void ORInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateOr(reg1Val, reg2Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1115,8 +1151,9 @@ void ANDInstruction::buildIR(IRData& Data) {
   llvm::Value *result = Data.Builder.CreateAnd(reg1Val, reg2Val);
 
   llvm::Value *rdPtr = Data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
-                                      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
-  Data.Builder.CreateStore(result, rdPtr);
+      {Data.Builder.getInt32(0), Data.Builder.getInt32(rd)});
+  if (rd != 0)  
+    Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
 }
@@ -1140,7 +1177,8 @@ void SLTInstruction::buildIR(IRData& Data) {
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rs12)});
   llvm::Value *src2Value = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs12Ptr); 
   llvm::Value *cond = Data.Builder.CreateICmpSLT(src1Value, src2Value);
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
+  if (rd != 0)
+    Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data); 
 }
@@ -1164,7 +1202,8 @@ void SLTUInstruction::buildIR(IRData& Data) {
                                       {Data.Builder.getInt32(0), Data.Builder.getInt32(rs12)});
   llvm::Value *src2Value = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), rs12Ptr); 
   llvm::Value *cond = Data.Builder.CreateICmpULT(src1Value, src2Value);
-  Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
+  if (rd != 0)
+    Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
 }
@@ -1182,6 +1221,9 @@ void PAUSEInstruction::buildIR(IRData& Data) {
 }
 
 void ECALLInstruction::buildIR(IRData& Data) {
+  llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
+  Data.Builder.CreateCall(Data.MemoryFunctions[8], {cpuStatePtr});
+  
   updatePC(Data);
 }
 

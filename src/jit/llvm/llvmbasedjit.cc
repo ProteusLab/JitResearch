@@ -6,6 +6,7 @@
 #include "llvm/ExecutionEngine/Orc/Shared/ExecutorAddress.h"
 #include "llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h"
 #include <iostream>
+#include <llvm-19/llvm/Support/raw_ostream.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include "llvm/IR/DataLayout.h"
@@ -19,13 +20,11 @@
 #include <cstdio>
 #include <functional>
 #include <llvm/IR/Mangler.h>
-#include "llvm/Support/TargetSelect.h"
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include "llvm/IR/LegacyPassManager.h"
 #include <llvm/IR/LLVMContext.h>
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Support/InitLLVM.h"
 #include "llvm/Transforms/Scalar/GVN.h"
 #include <memory>
 #include <string>
@@ -71,7 +70,7 @@ template <typename T, bool Signed = true>
 void loadHelper(const isa::Instruction *inst, CPUState &state) {
   auto rs = state.getReg(inst->rs1());
   auto addr = rs + inst->imm();
-  auto loaded = state.memory->read<T>(addr);
+  isa::Word loaded = state.memory->read<T>(addr);
   if constexpr (Signed) {
     loaded = isa::signExtend<sizeofBits<isa::Word>(), sizeofBits<T>()>(loaded);
   }
@@ -85,6 +84,50 @@ void storeHelper(const isa::Instruction *inst, CPUState &state) {
   T val = state.getReg(inst->rs2());
 
   state.memory->write(addr, val);
+}
+
+extern "C" {
+
+void doLB(const isa::Instruction *inst, CPUState &state) {
+  loadHelper<isa::Byte>(inst, state);
+}
+
+
+void doLBU(const isa::Instruction *inst, CPUState &state) {
+  loadHelper<isa::Byte, false>(inst, state);
+}
+
+void doLH(const isa::Instruction *inst, CPUState &state) {
+  loadHelper<isa::Half>(inst, state);
+}
+
+
+void doLHU(const isa::Instruction *inst, CPUState &state) {
+  loadHelper<isa::Half, false>(inst, state);
+}
+
+
+void doLW(const isa::Instruction *inst, CPUState &state) {
+  loadHelper<isa::Word>(inst, state);
+}
+
+void doSB(const isa::Instruction *inst, CPUState &state) {
+  storeHelper<isa::Byte>(inst, state);
+}
+
+
+void doSH(const isa::Instruction *inst, CPUState &state) {
+  storeHelper<isa::Half>(inst, state);
+}
+
+void doSW(const isa::Instruction *inst, CPUState &state) {
+  storeHelper<isa::Word>(inst, state);
+}
+
+void doSyscall(CPUState &state) {
+  state.emulateSysCall();
+}
+
 }
 
 class LLVMBasedJIT : public JitEngine {
@@ -110,10 +153,8 @@ private:
     }
 
     auto [module, ctx] = translate(pc, *bbInfo);
-    module->dump();
     llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(ctx));
     tsm = optimizeIRModule(std::move(tsm));
-
     auto err = m_jit->addIRModule(std::move(tsm));
     if (err) {
       return false;
@@ -171,6 +212,15 @@ std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>> LLV
 
   llvm::orc::MangleAndInterner mangle(m_jit->getExecutionSession(), m_jit->getDataLayout());
 
+  llvm::Type *cpuStatePtrTy = llvm::PointerType::get(*ctxPtr, 0);
+  llvm::FunctionType *ft = llvm::FunctionType::get(
+    builder.getVoidTy(),
+    {cpuStatePtrTy},
+    false
+  );
+
+  auto *F = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "doSyscall", *modulePtr);
+
   IRData data{.Module=*modulePtr, .Builder=builder, .CurrentFunction=fn, .MemoryFunctions={
     getOrDeclareMemoryFunction(*modulePtr, builder, "doLB"),
     getOrDeclareMemoryFunction(*modulePtr, builder, "doLH"),
@@ -180,6 +230,7 @@ std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>> LLV
     getOrDeclareMemoryFunction(*modulePtr, builder, "doSB"),
     getOrDeclareMemoryFunction(*modulePtr, builder, "doSH"),
     getOrDeclareMemoryFunction(*modulePtr, builder, "doSW"),
+    F,
   }};
   llvm::BasicBlock *entryBB = llvm::BasicBlock::Create(*ctxPtr, "entry", fn);
   builder.SetInsertPoint(entryBB);
@@ -192,78 +243,82 @@ std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>> LLV
 
 LLVMBasedJIT::LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT)
   : m_jit(std::move(JIT)) {
-    auto jdExpected = m_jit->createJITDylib("");
-    assert(jdExpected);
+    auto& jdExpected = m_jit->getMainJITDylib();
     llvm::orc::MangleAndInterner mangle(m_jit->getExecutionSession(), m_jit->getDataLayout());
-    auto ssp = m_jit->getExecutionSession().getSymbolStringPool();
     llvm::orc::SymbolMap mySymbolMap = {
       {
-        ssp->intern("doLB"),
+        mangle("doLB"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&loadHelper<isa::Byte>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doLB),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doLBU"),
+        mangle("doLBU"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&loadHelper<isa::Byte, false>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doLBU),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doLH"),
+        mangle("doLH"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&loadHelper<isa::Half>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doLH),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doLHU"),
+        mangle("doLHU"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&loadHelper<isa::Half, false>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doLHU),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doLW"),
+        mangle("doLW"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&loadHelper<isa::Word>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doLW),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doSB"),
+        mangle("doSB"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&storeHelper<isa::Byte>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doSB),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doSH"),
+        mangle("doSH"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&storeHelper<isa::Half>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doSH),
+          llvm::JITSymbolFlags::Callable
         )
       },
       {
-        ssp->intern("doSW"),
+        mangle("doSW"),
         llvm::orc::ExecutorSymbolDef(
-          llvm::orc::ExecutorAddr::fromPtr(&storeHelper<isa::Word>),
-          llvm::JITSymbolFlags::Absolute
+          llvm::orc::ExecutorAddr::fromPtr(&doSW),
+          llvm::JITSymbolFlags::Callable
+        )
+      },
+      {
+        mangle("doSyscall"),
+        llvm::orc::ExecutorSymbolDef(
+          llvm::orc::ExecutorAddr::fromPtr(&doSyscall),
+          llvm::JITSymbolFlags::Callable
         )
       },
     };
 
-    [[maybe_unused]] auto x = jdExpected.get().define(
+    [[maybe_unused]] auto x = jdExpected.define(
       llvm::orc::absoluteSymbols(std::move(mySymbolMap))
     );
   }
 
 } // end anonymouse namespace
 
-llvm::Expected<std::unique_ptr<ExecEngine>> makeLLVMBasedJIT(int argc, const char** argv) {
-  llvm::InitLLVM X{argc, argv};
+llvm::Expected<std::unique_ptr<ExecEngine>> makeLLVMBasedJIT() {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmPrinter();
   LLVMInitializeNativeAsmParser();
