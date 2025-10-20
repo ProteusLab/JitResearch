@@ -57,6 +57,25 @@
     break;                                                                     \
   }
 
+#define PROT_ASMJIT_B_COND_OP(OP, ASMJIT_OP)                                   \
+  case prot::isa::Opcode::k##OP: {                                             \
+    asmjit::Label l_end = cc.newLabel();                                       \
+    asmjit::Label lf = cc.newLabel();                                          \
+    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    cc.mov(rs2, getReg(insn.rs2()));                                           \
+    cc.cmp(rs1, rs2);                                                          \
+    cc.ASMJIT_OP(lf);                                                          \
+    cc.mov(pc, getPC());                                                       \
+    cc.add(pc, insn.imm());                                                    \
+    cc.jmp(l_end);                                                             \
+    cc.bind(lf);                                                               \
+    cc.mov(pc, getPC());                                                       \
+    cc.add(pc, kPcAdvance);                                                    \
+    cc.bind(l_end);                                                            \
+    cc.mov(getPC(), pc);                                                       \
+    break;                                                                     \
+  }
+
 namespace prot::engine {
 namespace {
 
@@ -64,6 +83,7 @@ using JitFunction = void (*)(CPUState &);
 
 class AsmJit : public JitEngine {
 public:
+  static constexpr isa::Word kPcAdvance = 4;
   AsmJit() = default;
 
 private:
@@ -153,6 +173,12 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
       PROT_ASMJIT_I_CMP_OP(SLTI, setg)
       PROT_ASMJIT_I_CMP_OP(SLTIU, seta)
+
+      PROT_ASMJIT_B_COND_OP(BEQ, jne)
+      PROT_ASMJIT_B_COND_OP(BGE, jl)
+      PROT_ASMJIT_B_COND_OP(BGEU, jb)
+      PROT_ASMJIT_B_COND_OP(BLT, jge)
+      PROT_ASMJIT_B_COND_OP(BLTU, jae)
 
     case prot::isa::Opcode::kLUI: {
       cc.mov(rs1, insn.imm());
