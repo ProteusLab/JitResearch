@@ -119,6 +119,8 @@ private:
     auto found = m_jit->lookup(std::to_string(pc));
     if (found) {
       std::invoke(found->toPtr<TBFunc>(), state);
+      const auto *bbInfo = getBBInfo(pc);
+      state.icount += bbInfo->insns.size();
       return true;
     }
 
@@ -138,7 +140,7 @@ private:
     found = m_jit->lookup(std::to_string(pc));
     assert(found);
     std::invoke(found->toPtr<TBFunc>(), state);
-    state.dump(std::cout);
+    state.icount += bbInfo->insns.size();
     return true;
   }
 

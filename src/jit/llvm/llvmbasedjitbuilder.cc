@@ -103,17 +103,6 @@ void updatePC(IRData &Data) {
   Data.Builder.CreateStore(newPCVal, pcPtr);
 }
 
-void updateIcount(IRData &Data) {
-  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
-  auto *cpuArg = Data.CurrentFunction->getArg(0);
-  llvm::Value *icountPC = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 4);
-  llvm::Value *icountVal =
-      Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), icountPC);
-  llvm::Value *newicountVal =
-      Data.Builder.CreateAdd(icountVal, Data.Builder.getInt32(1));
-  Data.Builder.CreateStore(newicountVal, icountPC);
-}
-
 struct Instruction {
   isa::Instruction m_insn;
   Instruction(isa::Instruction Instr) : m_insn(Instr) {}
@@ -372,7 +361,7 @@ void LUIInstruction::buildIR(IRData &Data) {
   isa::Operand rd = m_insn.rd();
   if (rd == 0) {
     updatePC(Data);
-    updateIcount(Data);
+
     return;
   }
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
@@ -387,7 +376,6 @@ void LUIInstruction::buildIR(IRData &Data) {
   Data.Builder.CreateStore(Data.Builder.getInt32(imm), rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void AUIPCInstruction::buildIR(IRData &Data) {
@@ -697,49 +685,41 @@ void BGEUInstruction::buildIR(IRData &Data) {
 void LBInstruction::buildIR(IRData &Data) {
   generateLoadCall(m_insn, Data, 0);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void LHInstruction::buildIR(IRData &Data) {
   generateLoadCall(m_insn, Data, 1);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void LWInstruction::buildIR(IRData &Data) {
   generateLoadCall(m_insn, Data, 2);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void LBUInstruction::buildIR(IRData &Data) {
   generateLoadCall(m_insn, Data, 3);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void LHUInstruction::buildIR(IRData &Data) {
   generateLoadCall(m_insn, Data, 4);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SBInstruction::buildIR(IRData &Data) {
   generateStoreCall(m_insn, Data, 5);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SHInstruction::buildIR(IRData &Data) {
   generateStoreCall(m_insn, Data, 6);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SWInstruction::buildIR(IRData &Data) {
   generateStoreCall(m_insn, Data, 7);
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ADDIInstruction::buildIR(IRData &Data) {
@@ -770,7 +750,6 @@ void ADDIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLTIInstruction::buildIR(IRData &Data) {
@@ -799,7 +778,6 @@ void SLTIInstruction::buildIR(IRData &Data) {
         Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLTIUInstruction::buildIR(IRData &Data) {
@@ -828,7 +806,6 @@ void SLTIUInstruction::buildIR(IRData &Data) {
         Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void XORIInstruction::buildIR(IRData &Data) {
@@ -859,7 +836,6 @@ void XORIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ORIInstruction::buildIR(IRData &Data) {
@@ -890,7 +866,6 @@ void ORIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ANDIInstruction::buildIR(IRData &Data) {
@@ -920,7 +895,6 @@ void ANDIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLLIInstruction::buildIR(IRData &Data) {
@@ -950,7 +924,6 @@ void SLLIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SRLIInstruction::buildIR(IRData &Data) {
@@ -980,7 +953,6 @@ void SRLIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SRAIInstruction::buildIR(IRData &Data) {
@@ -1010,7 +982,6 @@ void SRAIInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ADDInstruction::buildIR(IRData &Data) {
@@ -1045,7 +1016,6 @@ void ADDInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SUBInstruction::buildIR(IRData &Data) {
@@ -1080,7 +1050,6 @@ void SUBInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLLInstruction::buildIR(IRData &Data) {
@@ -1114,7 +1083,6 @@ void SLLInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SRLInstruction::buildIR(IRData &Data) {
@@ -1148,7 +1116,6 @@ void SRLInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SRAInstruction::buildIR(IRData &Data) {
@@ -1182,7 +1149,6 @@ void SRAInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void XORInstruction::buildIR(IRData &Data) {
@@ -1217,7 +1183,6 @@ void XORInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ORInstruction::buildIR(IRData &Data) {
@@ -1252,7 +1217,6 @@ void ORInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void ANDInstruction::buildIR(IRData &Data) {
@@ -1287,7 +1251,6 @@ void ANDInstruction::buildIR(IRData &Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLTInstruction::buildIR(IRData &Data) {
@@ -1320,7 +1283,6 @@ void SLTInstruction::buildIR(IRData &Data) {
         Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
 void SLTUInstruction::buildIR(IRData &Data) {
@@ -1353,31 +1315,20 @@ void SLTUInstruction::buildIR(IRData &Data) {
         Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
-void FENCEInstruction::buildIR(IRData &Data) {
-  updatePC(Data);
-  updateIcount(Data);
-}
+void FENCEInstruction::buildIR(IRData &Data) { updatePC(Data); }
 
-void PAUSEInstruction::buildIR(IRData &Data) {
-  updatePC(Data);
-  updateIcount(Data);
-}
+void PAUSEInstruction::buildIR(IRData &Data) { updatePC(Data); }
 
 void ECALLInstruction::buildIR(IRData &Data) {
   llvm::Value *cpuStatePtr = Data.CurrentFunction->getArg(0);
   Data.Builder.CreateCall(Data.MemoryFunctions[8], {cpuStatePtr});
 
   updatePC(Data);
-  updateIcount(Data);
 }
 
-void EBREAKInstruction::buildIR(IRData &Data) {
-  updatePC(Data);
-  updateIcount(Data);
-}
+void EBREAKInstruction::buildIR(IRData &Data) { updatePC(Data); }
 
 } // namespace
 
