@@ -349,12 +349,6 @@ struct FENCEInstruction : Instruction {
   void buildIR(IRData &data) override;
 };
 
-struct FENCETSOInstruction : Instruction {
-  using Instruction::Instruction;
-
-  void buildIR(IRData &data) override;
-};
-
 struct PAUSEInstruction : Instruction {
   using Instruction::Instruction;
 
@@ -1363,11 +1357,6 @@ void SLTUInstruction::buildIR(IRData &Data) {
 }
 
 void FENCEInstruction::buildIR(IRData &Data) {
-  updatePC(Data);
-  updateIcount(Data);
-}
-
-void FENCETSOInstruction::buildIR(IRData &Data) {
   updatePC(Data);
   updateIcount(Data);
 }
