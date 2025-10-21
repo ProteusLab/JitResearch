@@ -30,23 +30,6 @@ llvm::Type *getCPUStateType(llvm::LLVMContext &Ctx) {
   return cpuStateType;
 }
 
-llvm::Type *getInstructionType(llvm::LLVMContext &Ctx) {
-  if (auto *type = llvm::StructType::getTypeByName(Ctx, "Instruction")) {
-    return type;
-  }
-  llvm::Type *opcodeType = llvm::Type::getInt16Ty(Ctx);
-  llvm::Type *operandType = llvm::Type::getInt8Ty(Ctx);
-  llvm::Type *immType = llvm::Type::getInt32Ty(Ctx);
-
-  std::vector<llvm::Type *> structMemberTypes = {
-      opcodeType, operandType, operandType, operandType, immType};
-
-  llvm::StructType *instructionType = llvm::StructType::create(
-      Ctx, structMemberTypes, "Instruction", /*IsPacked=*/false);
-
-  return instructionType;
-}
-
 void generateLoadCall(isa::Instruction const &m_insn, IRData &data,
                       size_t MemFuncIdx) {
   auto *cpuStructTy = getCPUStateType(data.Builder.getContext());
