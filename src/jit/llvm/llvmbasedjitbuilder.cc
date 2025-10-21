@@ -4,6 +4,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
 #include <cstdint>
+#include <llvm-19/llvm/IR/Value.h>
 #include <vector>
 
 namespace prot::engine {
@@ -57,48 +58,50 @@ llvm::Type* getInstructionType(llvm::LLVMContext& Ctx) {
   return instructionType;
 }
 
-void generateLoadStoreCall(isa::Instruction const& m_insn, IRData& data, size_t MemFuncIdx) {
+void generateLoadCall(isa::Instruction const& m_insn, IRData& data, size_t MemFuncIdx) {
+  auto *cpuStructTy = getCPUStateType(data.Builder.getContext());
+  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(data.Builder.getContext()), 32);
+
+  llvm::Value *cpuStatePtr = data.CurrentFunction->getArg(0);
+  llvm::Value *regsPtr = data.Builder.CreateStructGEP(cpuStructTy, cpuStatePtr, 0);
+  llvm::Value *rdPtr = data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
+                                      {data.Builder.getInt32(0), data.Builder.getInt32(m_insn.rd())});
+
+  llvm::Value *rs1Ptr = data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
+                                      {data.Builder.getInt32(0), data.Builder.getInt32(m_insn.rs1())});
+  llvm::Value *rs1Val = data.Builder.CreateLoad(data.Builder.getInt32Ty(), rs1Ptr); 
+  
+  llvm::Value *addrVal = data.Builder.CreateAdd(rs1Val, data.Builder.getInt32(m_insn.imm()));
+
+  llvm::Value *loaded = data.Builder.CreateCall(data.MemoryFunctions[MemFuncIdx], {addrVal, cpuStatePtr});
+
+  if (m_insn.rd() != 0)                                    
+    data.Builder.CreateStore(loaded, rdPtr);
+}
+
+void generateStoreCall(isa::Instruction const& m_insn, IRData& data, size_t MemFuncIdx) {
+  auto *cpuStructTy = getCPUStateType(data.Builder.getContext());
+  auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(data.Builder.getContext()), 32);
   llvm::Value *cpuStatePtr = data.CurrentFunction->getArg(0);
 
-  llvm::Value *instructionValue = llvm::UndefValue::get(getInstructionType(data.Builder.getContext()));
-  
-  instructionValue = data.Builder.CreateInsertValue(
-    instructionValue, 
-    llvm::ConstantInt::get(llvm::Type::getInt16Ty(data.Builder.getContext()), static_cast<uint16_t>(m_insn.opcode())),
-    {0}
-  );
-  
-  instructionValue = data.Builder.CreateInsertValue(
-    instructionValue,
-    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rd())),
-    {1}
-  );
-  
-  instructionValue = data.Builder.CreateInsertValue(
-    instructionValue,
-    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rs1())),
-    {2}
-  );
-  
-  instructionValue = data.Builder.CreateInsertValue(
-    instructionValue,
-    llvm::ConstantInt::get(llvm::Type::getInt8Ty(data.Builder.getContext()), static_cast<uint8_t>(m_insn.rs2())),
-    {3}
-  );
-  
-  instructionValue = data.Builder.CreateInsertValue(
-    instructionValue,
-    llvm::ConstantInt::get(llvm::Type::getInt32Ty(data.Builder.getContext()), static_cast<uint32_t>(m_insn.imm())),
-    {4}
-  );
+  llvm::Value *regsPtr = data.Builder.CreateStructGEP(cpuStructTy, cpuStatePtr, 0);
 
-  llvm::Value *instructionAlloca = data.Builder.CreateAlloca(
-    getInstructionType(data.Builder.getContext())
-  );
+  llvm::Value *rs1Ptr = data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
+                                      {data.Builder.getInt32(0), data.Builder.getInt32(m_insn.rs1())});
+  llvm::Value *rs1Val = data.Builder.CreateLoad(data.Builder.getInt32Ty(), rs1Ptr); 
+  
+  llvm::Value *addrVal = data.Builder.CreateAdd(rs1Val, data.Builder.getInt32(m_insn.imm()));
 
-  data.Builder.CreateStore(instructionValue, instructionAlloca);
-
-  data.Builder.CreateCall(data.MemoryFunctions[MemFuncIdx], {instructionAlloca, cpuStatePtr});
+  llvm::Value *rs2Ptr = data.Builder.CreateInBoundsGEP(regsArrTy, regsPtr,
+                                      {data.Builder.getInt32(0), data.Builder.getInt32(m_insn.rs2())});
+  llvm::Value *rs2Val;
+  if (MemFuncIdx == 5)
+    rs2Val = data.Builder.CreateLoad(data.Builder.getInt8Ty(), rs2Ptr); 
+  else if (MemFuncIdx == 6)
+    rs2Val = data.Builder.CreateLoad(data.Builder.getInt16Ty(), rs2Ptr); 
+  else
+    rs2Val = data.Builder.CreateLoad(data.Builder.getInt32Ty(), rs2Ptr); 
+  data.Builder.CreateCall(data.MemoryFunctions[MemFuncIdx], {rs2Val, addrVal, cpuStatePtr});
 }
 
 void updatePC(IRData& Data) {
@@ -108,6 +111,15 @@ void updatePC(IRData& Data) {
   llvm::Value *pcVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), pcPtr);  
   llvm::Value *newPCVal = Data.Builder.CreateAdd(pcVal, Data.Builder.getInt32(4));
   Data.Builder.CreateStore(newPCVal, pcPtr);
+}
+
+void updateIcount(IRData& Data) {
+  auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
+  auto *cpuArg = Data.CurrentFunction->getArg(0);
+  llvm::Value *icountPC = Data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 4);
+  llvm::Value *icountVal = Data.Builder.CreateLoad(Data.Builder.getInt32Ty(), icountPC);  
+  llvm::Value *newicountVal = Data.Builder.CreateAdd(icountVal, Data.Builder.getInt32(1));
+  Data.Builder.CreateStore(newicountVal, icountPC);
 }
 
 struct Instruction {
@@ -374,6 +386,7 @@ void LUIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   if (rd == 0) {
     updatePC(Data);
+    updateIcount(Data);
     return;
   }
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
@@ -386,6 +399,7 @@ void LUIInstruction::buildIR(IRData& Data) {
   Data.Builder.CreateStore(Data.Builder.getInt32(imm), rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void AUIPCInstruction::buildIR(IRData& Data) {
@@ -414,10 +428,6 @@ void JALInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Imm offset = m_insn.imm();
 
-  if ((offset & 0x80000) != 0) {
-    offset |= 0xFFF00000;
-  }
-
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
 
@@ -439,10 +449,6 @@ void JALRInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm offset  = m_insn.imm();
-
-  if ((offset & 0x800) != 0) {
-    offset |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -470,10 +476,6 @@ void BEQInstruction::buildIR(IRData& Data) {
   isa::Operand rs11 = m_insn.rs1();
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
-
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -503,10 +505,6 @@ void BNEInstruction::buildIR(IRData& Data) {
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
 
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
-
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
   auto *cpuArg      = Data.CurrentFunction->getArg(0);
@@ -534,10 +532,6 @@ void BLTInstruction::buildIR(IRData& Data) {
   isa::Operand rs11 = m_insn.rs1();
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
-
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -567,10 +561,6 @@ void BGEInstruction::buildIR(IRData& Data) {
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
 
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
-
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
   auto *cpuArg      = Data.CurrentFunction->getArg(0);
@@ -598,10 +588,6 @@ void BLTUInstruction::buildIR(IRData& Data) {
   isa::Operand rs11 = m_insn.rs1();
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
-
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -631,10 +617,6 @@ void BGEUInstruction::buildIR(IRData& Data) {
   isa::Operand rs12 = m_insn.rs2();
   isa::Imm offset = m_insn.imm();
 
-  if ((offset & 0x1000) != 0) {
-    offset |= 0xFFFFE000;
-  }
-
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
   auto *cpuArg      = Data.CurrentFunction->getArg(0);
@@ -659,53 +641,57 @@ void BGEUInstruction::buildIR(IRData& Data) {
 }
 
 void LBInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 0);
+  generateLoadCall(m_insn, Data, 0);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void LHInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 1);
+  generateLoadCall(m_insn, Data, 1);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void LWInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 2);
+  generateLoadCall(m_insn, Data, 2);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void LBUInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 3);
+  generateLoadCall(m_insn, Data, 3);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void LHUInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 4);
+  generateLoadCall(m_insn, Data, 4);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SBInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 5);
+  generateStoreCall(m_insn, Data, 5);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SHInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 6);
+  generateStoreCall(m_insn, Data, 6);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SWInstruction::buildIR(IRData& Data) {
-  generateLoadStoreCall(m_insn, Data, 7);
+  generateStoreCall(m_insn, Data, 7);
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ADDIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -725,16 +711,13 @@ void ADDIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SLTIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -751,16 +734,13 @@ void SLTIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SLTIUInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -777,16 +757,13 @@ void SLTIUInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void XORIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -806,16 +783,13 @@ void XORIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ORIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -835,16 +809,13 @@ void ORIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ANDIInstruction::buildIR(IRData& Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1  = m_insn.rs1();
   isa::Imm imm   = m_insn.imm();
-
-  if ((imm & 0x800) != 0) {
-    imm |= 0xFFFFF000;
-  }
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy   = llvm::ArrayType::get(llvm::Type::getInt32Ty(Data.Builder.getContext()), 32);
@@ -863,6 +834,7 @@ void ANDIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SLLIInstruction::buildIR(IRData& Data) {
@@ -887,6 +859,7 @@ void SLLIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SRLIInstruction::buildIR(IRData& Data) {
@@ -911,6 +884,7 @@ void SRLIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SRAIInstruction::buildIR(IRData& Data) {
@@ -935,6 +909,7 @@ void SRAIInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ADDInstruction::buildIR(IRData& Data) {
@@ -963,6 +938,7 @@ void ADDInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SUBInstruction::buildIR(IRData& Data) {
@@ -991,6 +967,7 @@ void SUBInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SLLInstruction::buildIR(IRData& Data) {
@@ -1018,6 +995,7 @@ void SLLInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SRLInstruction::buildIR(IRData& Data) {
@@ -1045,6 +1023,7 @@ void SRLInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SRAInstruction::buildIR(IRData& Data) {
@@ -1072,6 +1051,7 @@ void SRAInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void XORInstruction::buildIR(IRData& Data) {
@@ -1100,6 +1080,7 @@ void XORInstruction::buildIR(IRData& Data) {
       Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ORInstruction::buildIR(IRData& Data) {
@@ -1128,6 +1109,7 @@ void ORInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ANDInstruction::buildIR(IRData& Data) {
@@ -1156,6 +1138,7 @@ void ANDInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(result, rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void SLTInstruction::buildIR(IRData& Data) {
@@ -1180,7 +1163,8 @@ void SLTInstruction::buildIR(IRData& Data) {
   if (rd != 0)
     Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
-  updatePC(Data); 
+  updatePC(Data);
+  updateIcount(Data); 
 }
 
 void SLTUInstruction::buildIR(IRData& Data) {
@@ -1206,18 +1190,22 @@ void SLTUInstruction::buildIR(IRData& Data) {
     Data.Builder.CreateStore(Data.Builder.CreateZExt(cond, Data.Builder.getInt32Ty()), rdPtr);
 
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void FENCEInstruction::buildIR(IRData& Data) {
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void FENCETSOInstruction::buildIR(IRData& Data) {
-  updatePC(Data); 
+  updatePC(Data);
+  updateIcount(Data); 
 }
 
 void PAUSEInstruction::buildIR(IRData& Data) {
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void ECALLInstruction::buildIR(IRData& Data) {
@@ -1225,10 +1213,12 @@ void ECALLInstruction::buildIR(IRData& Data) {
   Data.Builder.CreateCall(Data.MemoryFunctions[8], {cpuStatePtr});
   
   updatePC(Data);
+  updateIcount(Data);
 }
 
 void EBREAKInstruction::buildIR(IRData& Data) {
   updatePC(Data);
+  updateIcount(Data);
 }
 
 } // end anonymouse namespace

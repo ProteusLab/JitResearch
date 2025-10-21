@@ -6,7 +6,7 @@
 #include "llvm/ExecutionEngine/Orc/Shared/ExecutorAddress.h"
 #include "llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h"
 #include <iostream>
-#include <llvm-19/llvm/Support/raw_ostream.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include "llvm/IR/DataLayout.h"
@@ -65,69 +65,59 @@ llvm::Type* getCPUStateType(llvm::LLVMContext& Ctx) {
   return cpuStateType;
 }
 
-
 template <typename T, bool Signed = true>
-void loadHelper(const isa::Instruction *inst, CPUState &state) {
-  auto rs = state.getReg(inst->rs1());
-  auto addr = rs + inst->imm();
+isa::Word loadHelper(isa::Imm addr, CPUState &state) {
   isa::Word loaded = state.memory->read<T>(addr);
   if constexpr (Signed) {
     loaded = isa::signExtend<sizeofBits<isa::Word>(), sizeofBits<T>()>(loaded);
   }
-
-  state.setReg(inst->rd(), loaded);
+  return loaded;
 }
 
 template <typename T>
-void storeHelper(const isa::Instruction *inst, CPUState &state) {
-  auto addr = state.getReg(inst->rs1()) + inst->imm();
-  T val = state.getReg(inst->rs2());
-
+void storeHelper(T val, isa::Imm addr, CPUState &state) {
   state.memory->write(addr, val);
 }
 
-extern "C" {
 
-void doLB(const isa::Instruction *inst, CPUState &state) {
-  loadHelper<isa::Byte>(inst, state);
+isa::Word doLB(isa::Imm addr, CPUState &state) {
+  return loadHelper<isa::Byte>(addr, state);
 }
 
 
-void doLBU(const isa::Instruction *inst, CPUState &state) {
-  loadHelper<isa::Byte, false>(inst, state);
+isa::Word doLBU(isa::Imm addr, CPUState &state) {
+  return loadHelper<isa::Byte, false>(addr, state);
 }
 
-void doLH(const isa::Instruction *inst, CPUState &state) {
-  loadHelper<isa::Half>(inst, state);
-}
-
-
-void doLHU(const isa::Instruction *inst, CPUState &state) {
-  loadHelper<isa::Half, false>(inst, state);
+isa::Word doLH(isa::Imm addr, CPUState &state) {
+  return loadHelper<isa::Half>(addr, state);
 }
 
 
-void doLW(const isa::Instruction *inst, CPUState &state) {
-  loadHelper<isa::Word>(inst, state);
-}
-
-void doSB(const isa::Instruction *inst, CPUState &state) {
-  storeHelper<isa::Byte>(inst, state);
+isa::Word doLHU(isa::Imm addr, CPUState &state) {
+  return loadHelper<isa::Half, false>(addr, state);
 }
 
 
-void doSH(const isa::Instruction *inst, CPUState &state) {
-  storeHelper<isa::Half>(inst, state);
+isa::Word doLW(isa::Imm addr, CPUState &state) {
+  return loadHelper<isa::Word>(addr, state);
 }
 
-void doSW(const isa::Instruction *inst, CPUState &state) {
-  storeHelper<isa::Word>(inst, state);
+void doSB(isa::Byte val, isa::Imm addr, CPUState &state) {
+  storeHelper<isa::Byte>(val, addr, state);
+}
+
+
+void doSH(isa::Half val, isa::Imm addr, CPUState &state) {
+  storeHelper<isa::Half>(val, addr, state);
+}
+
+void doSW(isa::Word val, isa::Imm addr, CPUState &state) {
+  storeHelper<isa::Word>(val, addr, state);
 }
 
 void doSyscall(CPUState &state) {
   state.emulateSysCall();
-}
-
 }
 
 class LLVMBasedJIT : public JitEngine {
@@ -184,7 +174,7 @@ llvm::orc::ThreadSafeModule LLVMBasedJIT::optimizeIRModule(llvm::orc::ThreadSafe
   return TSM;
 }
 
-llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M, llvm::IRBuilder<> &Builder, llvm::StringRef Name) {
+llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M, llvm::IRBuilder<> &Builder, llvm::StringRef Name, bool isLoad = true) {
   if (auto *F = M.getFunction(Name)) {
     return F;
   }
@@ -193,8 +183,8 @@ llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M, llvm::IRBuilder<> &B
   llvm::Type *instPtrTy = llvm::PointerType::get(M.getContext(), 0);
 
   llvm::FunctionType *ft = llvm::FunctionType::get(
-    Builder.getVoidTy(),
-    {instPtrTy, cpuStatePtrTy},
+    isLoad ? llvm::Type::getInt32Ty(M.getContext()) : Builder.getVoidTy(),
+    {isLoad ? llvm::Type::getInt32Ty(M.getContext()) : instPtrTy, cpuStatePtrTy},
     false
   );
 
@@ -227,9 +217,9 @@ std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>> LLV
     getOrDeclareMemoryFunction(*modulePtr, builder, "doLW"),
     getOrDeclareMemoryFunction(*modulePtr, builder, "doLBU"),
     getOrDeclareMemoryFunction(*modulePtr, builder, "doLHU"),
-    getOrDeclareMemoryFunction(*modulePtr, builder, "doSB"),
-    getOrDeclareMemoryFunction(*modulePtr, builder, "doSH"),
-    getOrDeclareMemoryFunction(*modulePtr, builder, "doSW"),
+    getOrDeclareMemoryFunction(*modulePtr, builder, "doSB", false),
+    getOrDeclareMemoryFunction(*modulePtr, builder, "doSH", false),
+    getOrDeclareMemoryFunction(*modulePtr, builder, "doSW", false),
     F,
   }};
   llvm::BasicBlock *entryBB = llvm::BasicBlock::Create(*ctxPtr, "entry", fn);
@@ -318,12 +308,11 @@ LLVMBasedJIT::LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT)
 
 } // end anonymouse namespace
 
-llvm::Expected<std::unique_ptr<ExecEngine>> makeLLVMBasedJIT() {
+std::unique_ptr<ExecEngine> makeLLVMBasedJIT() {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmPrinter();
   LLVMInitializeNativeAsmParser();
   auto jitOrErr = llvm::orc::LLJITBuilder().create();
-  if (!jitOrErr) return jitOrErr.takeError();
   return std::make_unique<LLVMBasedJIT>(std::move(*jitOrErr));
 }
 
