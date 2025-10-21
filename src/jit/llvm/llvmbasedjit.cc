@@ -158,7 +158,7 @@ LLVMBasedJIT::optimizeIRModule(llvm::orc::ThreadSafeModule TSM) {
 
 llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M,
                                            llvm::StringRef Name,
-                                           llvm::Type* OutType) {
+                                           llvm::Type *OutType) {
   if (auto *F = M.getFunction(Name)) {
     return F;
   }
@@ -166,9 +166,7 @@ llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M,
   llvm::Type *cpuStatePtrTy = llvm::PointerType::get(M.getContext(), 0);
 
   llvm::FunctionType *ft = llvm::FunctionType::get(
-      OutType,
-      {llvm::Type::getInt32Ty(M.getContext()), cpuStatePtrTy},
-      false);
+      OutType, {llvm::Type::getInt32Ty(M.getContext()), cpuStatePtrTy}, false);
 
   auto *F =
       llvm::Function::Create(ft, llvm::Function::ExternalLinkage, Name, M);

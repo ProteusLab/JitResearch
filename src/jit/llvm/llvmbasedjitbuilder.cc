@@ -56,9 +56,13 @@ void generateLoadCall(isa::Instruction const &m_insn, IRData &data,
       data.MemoryFunctions[MemFuncIdx], {addrVal, cpuStatePtr});
 
   if (m_insn.rd() != 0)
-    data.Builder.CreateStore(isSigned
-      ? data.Builder.CreateSExt(loaded, llvm::Type::getInt32Ty(data.Builder.getContext()))
-      : data.Builder.CreateZExt(loaded, llvm::Type::getInt32Ty(data.Builder.getContext())), rdPtr);
+    data.Builder.CreateStore(
+        isSigned
+            ? data.Builder.CreateSExt(
+                  loaded, llvm::Type::getInt32Ty(data.Builder.getContext()))
+            : data.Builder.CreateZExt(
+                  loaded, llvm::Type::getInt32Ty(data.Builder.getContext())),
+        rdPtr);
 }
 
 void generateStoreCall(isa::Instruction const &m_insn, IRData &data,
