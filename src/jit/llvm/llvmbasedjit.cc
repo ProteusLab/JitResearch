@@ -58,37 +58,28 @@ llvm::Type *getCPUStateType(llvm::LLVMContext &Ctx) {
   return cpuStateType;
 }
 
-template <typename T, bool Signed = true>
-isa::Word loadHelper(isa::Imm addr, CPUState &state) {
-  isa::Word loaded = state.memory->read<T>(addr);
-  if constexpr (Signed) {
-    loaded = isa::signExtend<sizeofBits<isa::Word>(), sizeofBits<T>()>(loaded);
-  }
-  return loaded;
-}
-
 template <typename T> void storeHelper(T val, isa::Imm addr, CPUState &state) {
   state.memory->write(addr, val);
 }
 
-isa::Word doLB(isa::Imm addr, CPUState &state) {
-  return loadHelper<isa::Byte>(addr, state);
+isa::Byte doLB(isa::Imm addr, CPUState &state) {
+  return state.memory->read<isa::Byte>(addr);
 }
 
-isa::Word doLBU(isa::Imm addr, CPUState &state) {
-  return loadHelper<isa::Byte, false>(addr, state);
+isa::Byte doLBU(isa::Imm addr, CPUState &state) {
+  return state.memory->read<isa::Byte>(addr);
 }
 
-isa::Word doLH(isa::Imm addr, CPUState &state) {
-  return loadHelper<isa::Half>(addr, state);
+isa::Half doLH(isa::Imm addr, CPUState &state) {
+  return state.memory->read<isa::Half>(addr);
 }
 
-isa::Word doLHU(isa::Imm addr, CPUState &state) {
-  return loadHelper<isa::Half, false>(addr, state);
+isa::Half doLHU(isa::Imm addr, CPUState &state) {
+  return state.memory->read<isa::Half>(addr);
 }
 
 isa::Word doLW(isa::Imm addr, CPUState &state) {
-  return loadHelper<isa::Word>(addr, state);
+  return state.memory->read<isa::Word>(addr);
 }
 
 void doSB(isa::Byte val, isa::Imm addr, CPUState &state) {
@@ -166,20 +157,17 @@ LLVMBasedJIT::optimizeIRModule(llvm::orc::ThreadSafeModule TSM) {
 }
 
 llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M,
-                                           llvm::IRBuilder<> &Builder,
                                            llvm::StringRef Name,
-                                           bool isLoad = true) {
+                                           llvm::Type* OutType) {
   if (auto *F = M.getFunction(Name)) {
     return F;
   }
 
   llvm::Type *cpuStatePtrTy = llvm::PointerType::get(M.getContext(), 0);
-  llvm::Type *instPtrTy = llvm::PointerType::get(M.getContext(), 0);
 
   llvm::FunctionType *ft = llvm::FunctionType::get(
-      isLoad ? llvm::Type::getInt32Ty(M.getContext()) : Builder.getVoidTy(),
-      {isLoad ? llvm::Type::getInt32Ty(M.getContext()) : instPtrTy,
-       cpuStatePtrTy},
+      OutType,
+      {llvm::Type::getInt32Ty(M.getContext()), cpuStatePtrTy},
       false);
 
   auto *F =
@@ -214,14 +202,14 @@ LLVMBasedJIT::translate(const isa::Word pc, const BBInfo &info) {
       .Builder = builder,
       .CurrentFunction = fn,
       .MemoryFunctions = {
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doLB"),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doLH"),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doLW"),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doLBU"),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doLHU"),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doSB", false),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doSH", false),
-          getOrDeclareMemoryFunction(*modulePtr, builder, "doSW", false),
+          getOrDeclareMemoryFunction(*modulePtr, "doLB", builder.getInt8Ty()),
+          getOrDeclareMemoryFunction(*modulePtr, "doLH", builder.getInt16Ty()),
+          getOrDeclareMemoryFunction(*modulePtr, "doLW", builder.getInt32Ty()),
+          getOrDeclareMemoryFunction(*modulePtr, "doLBU", builder.getInt8Ty()),
+          getOrDeclareMemoryFunction(*modulePtr, "doLHU", builder.getInt16Ty()),
+          getOrDeclareMemoryFunction(*modulePtr, "doSB", builder.getVoidTy()),
+          getOrDeclareMemoryFunction(*modulePtr, "doSH", builder.getVoidTy()),
+          getOrDeclareMemoryFunction(*modulePtr, "doSW", builder.getVoidTy()),
           F,
       }};
   llvm::BasicBlock *entryBB = llvm::BasicBlock::Create(*ctxPtr, "entry", fn);

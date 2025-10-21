@@ -31,7 +31,7 @@ llvm::Type *getCPUStateType(llvm::LLVMContext &Ctx) {
 }
 
 void generateLoadCall(isa::Instruction const &m_insn, IRData &data,
-                      size_t MemFuncIdx) {
+                      size_t MemFuncIdx, bool isSigned = false) {
   auto *cpuStructTy = getCPUStateType(data.Builder.getContext());
   auto *regsArrTy = llvm::ArrayType::get(
       llvm::Type::getInt32Ty(data.Builder.getContext()), 32);
@@ -56,7 +56,9 @@ void generateLoadCall(isa::Instruction const &m_insn, IRData &data,
       data.MemoryFunctions[MemFuncIdx], {addrVal, cpuStatePtr});
 
   if (m_insn.rd() != 0)
-    data.Builder.CreateStore(loaded, rdPtr);
+    data.Builder.CreateStore(isSigned
+      ? data.Builder.CreateSExt(loaded, llvm::Type::getInt32Ty(data.Builder.getContext()))
+      : data.Builder.CreateZExt(loaded, llvm::Type::getInt32Ty(data.Builder.getContext())), rdPtr);
 }
 
 void generateStoreCall(isa::Instruction const &m_insn, IRData &data,
@@ -683,27 +685,27 @@ void BGEUInstruction::buildIR(IRData &Data) {
 }
 
 void LBInstruction::buildIR(IRData &Data) {
-  generateLoadCall(m_insn, Data, 0);
+  generateLoadCall(m_insn, Data, 0, true);
   updatePC(Data);
 }
 
 void LHInstruction::buildIR(IRData &Data) {
-  generateLoadCall(m_insn, Data, 1);
+  generateLoadCall(m_insn, Data, 1, true);
   updatePC(Data);
 }
 
 void LWInstruction::buildIR(IRData &Data) {
-  generateLoadCall(m_insn, Data, 2);
+  generateLoadCall(m_insn, Data, 2, true);
   updatePC(Data);
 }
 
 void LBUInstruction::buildIR(IRData &Data) {
-  generateLoadCall(m_insn, Data, 3);
+  generateLoadCall(m_insn, Data, 3, false);
   updatePC(Data);
 }
 
 void LHUInstruction::buildIR(IRData &Data) {
-  generateLoadCall(m_insn, Data, 4);
+  generateLoadCall(m_insn, Data, 4, false);
   updatePC(Data);
 }
 
