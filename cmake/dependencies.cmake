@@ -41,4 +41,4 @@ CPMAddPackage(
   DOWNLOAD_ONLY)
 
 # llvm
-find_package(LLVM 19.1.3 CONFIG REQUIRED)
+find_package(LLVM 18.1.3 CONFIG REQUIRED)
