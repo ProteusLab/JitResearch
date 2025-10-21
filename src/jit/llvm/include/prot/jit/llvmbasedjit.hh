@@ -6,7 +6,7 @@
 
 #include "prot/exec_engine.hh"
 
-namespace prot::engine {  
+namespace prot::engine {
 std::unique_ptr<ExecEngine> makeLLVMBasedJIT();
 } // end namespace prot::engine
 

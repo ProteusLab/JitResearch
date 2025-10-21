@@ -3,8 +3,8 @@
 
 #include <array>
 #include <llvm/IR/Function.h>
-#include <llvm/Support/Error.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/Support/Error.h>
 #include <memory>
 
 #include "prot/exec_engine.hh"
@@ -14,13 +14,13 @@
 namespace prot::engine {
 
 struct IRData {
-  llvm::Module& Module;
-  llvm::IRBuilder<>& Builder;
-  llvm::Function* CurrentFunction;
-  std::array<llvm::Function*, 9> MemoryFunctions;
-};    
+  llvm::Module &Module;
+  llvm::IRBuilder<> &Builder;
+  llvm::Function *CurrentFunction;
+  std::array<llvm::Function *, 9> MemoryFunctions;
+};
 
-void buildInstruction(IRData& data, isa::Instruction insn);
+void buildInstruction(IRData &data, isa::Instruction insn);
 } // end namespace prot::engine
 
 #endif // PROT_JIT_LLVMBASEDJITBUILDER_HH_INCLUDED
