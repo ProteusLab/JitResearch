@@ -4,7 +4,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
 #include <cstdint>
-#include <llvm-19/llvm/IR/Value.h>
+#include <llvm/IR/Value.h>
 #include <vector>
 
 namespace prot::engine {
