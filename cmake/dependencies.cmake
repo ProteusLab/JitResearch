@@ -39,3 +39,6 @@ CPMAddPackage(
   EXCLUDE_FROM_ALL True
   SYSTEM True
   DOWNLOAD_ONLY)
+
+# llvm
+find_package(LLVM 18.1.3 CONFIG REQUIRED)

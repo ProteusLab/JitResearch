@@ -8,6 +8,7 @@
 #include "prot/elf_loader.hh"
 #include "prot/hart.hh"
 #include "prot/interpreter.hh"
+#include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/xbyak.hh"
 #include "prot/memory.hh"
 
@@ -38,7 +39,7 @@ int main(int argc, const char *argv[]) try {
     prot::ElfLoader loader{elfPath};
 
     std::unique_ptr<prot::ExecEngine> engine =
-        jit ? prot::engine::makeXbyak()
+        jit ? prot::engine::makeLLVMBasedJIT()
             : std::make_unique<prot::engine::Interpreter>();
 
     prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};
