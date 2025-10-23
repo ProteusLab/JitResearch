@@ -57,7 +57,8 @@ int main(int argc, const char *argv[]) try {
   hart.dump(std::cout);
   std::chrono::duration<double> duration = end - start;
   fmt::println("Finish execution");
-  fmt::println("Time duration: {}", duration.count());
+  fmt::println("Time duration: {}s", duration.count());
+  fmt::println("MIPS: {}",  hart.getIcount() / (duration.count() * 1000000));
 } catch (const std::exception &ex) {
   fmt::println(std::cerr, "Caught an exception of type {}, message: {}",
                typeid(ex).name(), ex.what());

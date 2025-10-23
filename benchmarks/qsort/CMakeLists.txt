@@ -20,8 +20,14 @@ add_custom_target(build_qsort_riscv32
   DEPENDS ${BIN}
 )
 
-add_custom_target(run_qsort_riscv32_bench
+add_custom_target(run_qsort_riscv32_bench_llvm
   COMMAND $<TARGET_FILE:prot_sim_app> --jit ${BIN}
+  DEPENDS build_qsort_riscv32 prot_sim_app
+  COMMENT "Running ${BIN} with PSIM JIT"
+)
+
+add_custom_target(run_qsort_riscv32_bench
+  COMMAND $<TARGET_FILE:prot_sim_app> ${BIN}
   DEPENDS build_qsort_riscv32 prot_sim_app
   COMMENT "Running ${BIN} with PSIM JIT"
 )
