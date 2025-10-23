@@ -229,10 +229,10 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       PROT_ASMJIT_I_CMP_OP(SLTI, setl)
       PROT_ASMJIT_I_CMP_OP(SLTIU, setb)
 
-      PROT_ASMJIT_B_COND_OP(BEQ,  kEqual)
-      PROT_ASMJIT_B_COND_OP(BNE,  kNotEqual)
-      PROT_ASMJIT_B_COND_OP(BLT,  kSignedLT)
-      PROT_ASMJIT_B_COND_OP(BGE,  kSignedGE)
+      PROT_ASMJIT_B_COND_OP(BEQ, kEqual)
+      PROT_ASMJIT_B_COND_OP(BNE, kNotEqual)
+      PROT_ASMJIT_B_COND_OP(BLT, kSignedLT)
+      PROT_ASMJIT_B_COND_OP(BGE, kSignedGE)
       PROT_ASMJIT_B_COND_OP(BLTU, kUnsignedLT)
       PROT_ASMJIT_B_COND_OP(BGEU, kUnsignedGE)
 
