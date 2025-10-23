@@ -297,7 +297,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   }                                                                            \
   case kS##Op##I: {                                                            \
     getRs1(temp1);                                                             \
-    op(temp1, insn.rs2());                                                     \
+    op(temp1, insn.imm());                                                     \
     setRd(temp1);                                                              \
     break;                                                                     \
   }

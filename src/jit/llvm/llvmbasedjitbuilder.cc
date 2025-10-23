@@ -906,7 +906,7 @@ void ANDIInstruction::buildIR(IRData &Data) {
 void SLLIInstruction::buildIR(IRData &Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1 = m_insn.rs1();
-  isa::Imm imm = m_insn.rs2();
+  isa::Imm imm = m_insn.imm();
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy = llvm::ArrayType::get(
@@ -935,7 +935,7 @@ void SLLIInstruction::buildIR(IRData &Data) {
 void SRLIInstruction::buildIR(IRData &Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1 = m_insn.rs1();
-  isa::Imm imm = m_insn.rs2();
+  isa::Imm imm = m_insn.imm();
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy = llvm::ArrayType::get(
@@ -964,7 +964,7 @@ void SRLIInstruction::buildIR(IRData &Data) {
 void SRAIInstruction::buildIR(IRData &Data) {
   isa::Operand rd = m_insn.rd();
   isa::Operand rs1 = m_insn.rs1();
-  isa::Imm imm = m_insn.rs2();
+  isa::Imm imm = m_insn.imm();
 
   auto *cpuStructTy = getCPUStateType(Data.Builder.getContext());
   auto *regsArrTy = llvm::ArrayType::get(

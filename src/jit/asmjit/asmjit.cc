@@ -37,7 +37,7 @@
 #define PROT_ASMJIT_I_SHIFT_OP(OP, ASMJIT_OP)                                  \
   case k##OP##I: {                                                             \
     loadReg(rs1, insn.rs1());                                                  \
-    cc.ASMJIT_OP(rs1, insn.rs2());                                             \
+    cc.ASMJIT_OP(rs1, insn.imm());                                             \
     setDst(insn.rd(), rs1);                                                    \
     break;                                                                     \
   }
