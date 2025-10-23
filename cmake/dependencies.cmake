@@ -42,3 +42,10 @@ CPMAddPackage(
 
 # llvm
 find_package(LLVM 18.1.3 CONFIG REQUIRED)
+
+CPMAddPackage(
+  NAME lightning
+  URL "https://ftp.gnu.org/gnu/lightning/lightning-2.2.3.tar.gz"
+  EXCLUDE_FROM_ALL True
+  DOWNLOAD_ONLY True
+)
