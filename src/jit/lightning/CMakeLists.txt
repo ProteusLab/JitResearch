@@ -35,7 +35,7 @@ set_target_properties(
   PROPERTIES IMPORTED_LOCATION "${LIGHTNING_LIBRARY}"
              INTERFACE_INCLUDE_DIRECTORIES "${LIGHTNING_INCLUDE_DIR}")
 
-add_dependencies(liblightning lightning)
+add_dependencies(liblightning lightning_lib)
 
 
 # ---------------------------------------------
