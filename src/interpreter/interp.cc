@@ -14,19 +14,11 @@ void executeRegisterRegisterOp(const isa::Instruction &inst, CPUState &state,
   state.setReg(inst.rd(), op(rs1, rs2));
 }
 
-template <std::regular_invocable<isa::Word, isa::Operand> Func>
+template <std::regular_invocable<isa::Word, isa::Word> Func>
 void executeRegisterImmOp(const isa::Instruction &inst, CPUState &state,
                           Func op) {
   auto rs1 = state.getReg(inst.rs1());
   auto imm = inst.imm();
-  state.setReg(inst.rd(), op(rs1, imm));
-}
-
-template <std::regular_invocable<isa::Word, isa::Operand> Func>
-void executeRegisterImmRegOp(const isa::Instruction &inst, CPUState &state,
-                             Func op) {
-  auto rs1 = state.getReg(inst.rs1());
-  auto imm = inst.rs2();
   state.setReg(inst.rd(), op(rs1, imm));
 }
 
@@ -177,7 +169,7 @@ void doSLL(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, sllHelper);
 }
 void doSLLI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmRegOp(inst, state, sllHelper);
+  executeRegisterImmOp(inst, state, sllHelper);
 }
 
 void doSLT(const isa::Instruction &inst, CPUState &state) {
@@ -203,7 +195,7 @@ void doSRA(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, sraHelper);
 }
 void doSRAI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmRegOp(inst, state, sraHelper);
+  executeRegisterImmOp(inst, state, sraHelper);
 }
 
 isa::Word srlHelper(isa::Word lhs, isa::Word rhs) {
@@ -214,7 +206,7 @@ void doSRL(const isa::Instruction &inst, CPUState &state) {
   executeRegisterRegisterOp(inst, state, srlHelper);
 }
 void doSRLI(const isa::Instruction &inst, CPUState &state) {
-  executeRegisterImmRegOp(inst, state, srlHelper);
+  executeRegisterImmOp(inst, state, srlHelper);
 }
 
 void doSUB(const isa::Instruction &inst, CPUState &state) {
