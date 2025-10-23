@@ -1,5 +1,6 @@
 #include <CLI/CLI.hpp>
 
+#include <chrono>
 #include <filesystem>
 
 #include <fmt/core.h>
@@ -49,10 +50,15 @@ int main(int argc, const char *argv[]) try {
     return hart;
   }();
 
-  hart.dump(std::cout);
+  auto start = std::chrono::high_resolution_clock::now();
   hart.run();
+  auto end = std::chrono::high_resolution_clock::now();
   hart.dump(std::cout);
-  fmt::println("Finish execution");
+  std::chrono::duration<double> duration = end - start;
+  fmt::println("icount: {}", hart.getIcount());
+  fmt::println("time: {}s", duration.count());
+  fmt::println("threshold: {}", 0);
+  fmt::println("mips: {}", hart.getIcount() / (duration.count() * 1000000));
   return hart.getExitCode();
 } catch (const std::exception &ex) {
   fmt::println(std::cerr, "Caught an exception of type {}, message: {}",

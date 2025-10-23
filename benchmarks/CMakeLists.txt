@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
+project(psim-benchmarks LANGUAGES C ASM)
+
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set_property(CACHE CMAKE_INSTALL_PREFIX PROPERTY VALUE "${CMAKE_BINARY_DIR}/install")
+endif()
+
+macro(prot_add_bench tar)
+  add_executable(${tar} ${ARGN})
+  target_link_libraries(${tar} PRIVATE bench_startup)
+  install(TARGETS ${tar} DESTINATION bench)
+endmacro()
+
+add_subdirectory(common)
+add_subdirectory(qsort)
+add_subdirectory(towers)
+add_subdirectory(multiply)
+add_subdirectory(rsort)
+add_subdirectory(vvadd)
+add_subdirectory(median)
+add_subdirectory(nopbench)
+add_subdirectory(fibrec)
