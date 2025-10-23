@@ -193,13 +193,12 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kNumOpcodes:
       break;
     }
-
-    auto func = reinterpret_cast<JitFunction>(jit_emit());
-
-    jit_clear_state();
-
-    return func;
   }
+  auto func = reinterpret_cast<JitFunction>(jit_emit());
+
+  jit_clear_state();
+
+  return func;
 }
 } // namespace
 
