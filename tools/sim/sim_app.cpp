@@ -35,7 +35,8 @@ int main(int argc, const char *argv[]) try {
 
     app.add_option("--jit-backend", jitBackend, "JIT backend")
         ->check(CLI::IsMember({prot::engine::JitFactory::kXbyakJitName,
-                               prot::engine::JitFactory::kAsmJitName}))
+                               prot::engine::JitFactory::kAsmJitName,
+                               prot::engine::JitFactory::kLLVMJitName}))
         ->default_val(prot::engine::JitFactory::kXbyakJitName)
         ->needs("--jit");
 

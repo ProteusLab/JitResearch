@@ -5,7 +5,8 @@ const std::unordered_map<std::string,
                          std::function<std::unique_ptr<ExecEngine>()>>
     JitFactory::kFactories = {
         {JitFactory::kXbyakJitName, []() { return makeXbyak(); }},
-        {JitFactory::kAsmJitName, []() { return makeAsmJit(); }}};
+        {JitFactory::kAsmJitName, []() { return makeAsmJit(); }},
+        {JitFactory::kLLVMJitName, []() { return makeLLVMBasedJIT(); }}};
 
 std::unique_ptr<ExecEngine>
 JitFactory::createEngine(const std::string &backend) {

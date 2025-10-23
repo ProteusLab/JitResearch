@@ -3,6 +3,7 @@
 
 #include "prot/exec_engine.hh"
 #include "prot/jit/asmjit.hh"
+#include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/xbyak.hh"
 
 #include <functional>
@@ -15,6 +16,7 @@ class JitFactory {
 public:
   static constexpr auto kAsmJitName = "asmjit";
   static constexpr auto kXbyakJitName = "xbyak";
+  static constexpr auto kLLVMJitName = "llvm";
 
   static std::unique_ptr<ExecEngine> createEngine(const std::string &backend);
   static bool exist(const std::string &backend);
