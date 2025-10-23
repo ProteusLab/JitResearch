@@ -6,6 +6,7 @@ add_library(prot_mir OBJECT ${mir_SOURCE_DIR}/mir.c
 
 add_library(prot_mir_static STATIC)
 target_link_libraries(prot_mir_static PRIVATE prot_mir)
+target_compile_features(prot_mir_static PRIVATE c_std_11)
 
 add_library(prot_jit_mir STATIC mir.cc)
 

@@ -1,0 +1,4 @@
+matplotlib
+tqdm
+seaborn
+pandas
