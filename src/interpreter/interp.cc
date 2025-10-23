@@ -53,7 +53,7 @@ template <std::regular_invocable<isa::Word, isa::Word> Cond>
 void brHelper(const isa::Instruction &inst, CPUState &state, Cond cond) {
   auto lhs = state.getReg(inst.rs1());
   auto rhs = state.getReg(inst.rs2());
-  const isa::Addr offset = cond(lhs, rhs) ? inst.imm() : sizeof(isa::Word);
+  const isa::Addr offset = cond(lhs, rhs) ? inst.imm() : isa::kWordSize;
 
   state.setPC(state.getPC() + offset);
 }
@@ -88,12 +88,12 @@ void doFENCE(const isa::Instruction & /*unused*/, CPUState & /*unused*/) {
 }
 
 void doJAL(const isa::Instruction &inst, CPUState &state) {
-  state.setReg(inst.rd(), state.getPC() + sizeof(isa::Word));
+  state.setReg(inst.rd(), state.getPC() + isa::kWordSize);
 
   state.setPC(state.getPC() + inst.imm());
 }
 void doJALR(const isa::Instruction &inst, CPUState &state) {
-  auto retAddr = state.getPC() + sizeof(isa::Word);
+  auto retAddr = state.getPC() + isa::kWordSize;
   auto target = state.getReg(inst.rs1()) + inst.imm();
 
   target >>= 1;
@@ -302,7 +302,7 @@ void Interpreter::execute(CPUState &cpu, const isa::Instruction &insn) {
   handler(insn, cpu);
 
   if (!isa::changesPC(insn.opcode())) {
-    cpu.setPC(oldPC + sizeof(isa::Word));
+    cpu.setPC(oldPC + isa::kWordSize);
   }
 }
 } // namespace prot::engine
