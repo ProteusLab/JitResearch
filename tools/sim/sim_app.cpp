@@ -8,8 +8,8 @@
 #include "prot/elf_loader.hh"
 #include "prot/hart.hh"
 #include "prot/interpreter.hh"
-#include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/factory.hh"
+#include "prot/jit/llvmbasedjit.hh"
 #include "prot/memory.hh"
 
 int main(int argc, const char *argv[]) try {
