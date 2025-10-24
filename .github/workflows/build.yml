@@ -67,7 +67,8 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{matrix.compiler}} \
             -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=${{matrix.export_commands}} \
-            -DPROT_ENABLE_WERROR=ON
+            -DPROT_ENABLE_WERROR=ON \
+            -DPROT_BUILD_TESTS=ON
 
       - name: Build
         # Build your program with the given configuration
