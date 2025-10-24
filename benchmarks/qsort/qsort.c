@@ -27,7 +27,7 @@ typedef unsigned size_t;
 // Input/Reference Data
 
 #define type int
-#include "dataset1.h"
+#include "dataset2.h"
 
 // Swap macro for swapping two values.
 

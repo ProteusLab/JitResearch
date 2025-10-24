@@ -98,6 +98,7 @@ void doSyscall(CPUState &state) { state.emulateSysCall(); }
 
 class LLVMBasedJIT : public JitEngine {
   std::unique_ptr<llvm::orc::LLJIT> m_jit;
+  std::unordered_map<isa::Word, llvm::orc::ExecutorAddr> m_cache;
 
   using TBFunc = void (*)(CPUState &);
 
@@ -107,9 +108,11 @@ public:
 private:
   bool doJIT(CPUState &state) override {
     const auto pc = state.getPC();
-    auto found = m_jit->lookup(std::to_string(pc));
-    if (found) {
-      std::invoke(found->toPtr<TBFunc>(), state);
+    llvm::orc::ExecutorAddr found;
+    auto it = m_cache.find(pc);
+    if (it != m_cache.end()) {
+      found = it->second;
+      std::invoke(found.toPtr<TBFunc>(), state);
       const auto *bbInfo = getBBInfo(pc);
       state.icount += bbInfo->insns.size();
       return true;
@@ -127,10 +130,12 @@ private:
     if (err) {
       return false;
     }
-
-    found = m_jit->lookup(std::to_string(pc));
+    
+    bool hasFound;
+    std::tie(it, hasFound) = m_cache.insert({pc, *m_jit->lookup(std::to_string(pc))});
+    found = it->second;
     assert(found);
-    std::invoke(found->toPtr<TBFunc>(), state);
+    std::invoke(found.toPtr<TBFunc>(), state);
     state.icount += bbInfo->insns.size();
     return true;
   }
@@ -220,7 +225,8 @@ LLVMBasedJIT::translate(const isa::Word pc, const BBInfo &info) {
 }
 
 LLVMBasedJIT::LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT)
-    : m_jit(std::move(JIT)) {
+    : m_jit(std::move(JIT)) 
+    {
   auto &jdExpected = m_jit->getMainJITDylib();
   llvm::orc::MangleAndInterner mangle(m_jit->getExecutionSession(),
                                       m_jit->getDataLayout());
