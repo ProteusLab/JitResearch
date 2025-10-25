@@ -105,25 +105,6 @@
     invoke->setArg(0, state_ptr);                                              \
     invoke->setArg(1, rs1);                                                    \
     invoke->setRet(0, rd);                                                     \
-    if (insn.rd() != 0) {                                                      \
-      cc.shl(rd, (sizeof(isa::Addr) - sizeof(DATA_TYPE)) * CHAR_BIT);          \
-      cc.sar(rd, (sizeof(isa::Addr) - sizeof(DATA_TYPE)) * CHAR_BIT);          \
-      cc.mov(getReg(insn.rd()), rd);                                           \
-    }                                                                          \
-    break;                                                                     \
-  }
-
-#define PROT_ASMJIT_LU_OP(OP, DATA_TYPE)                                       \
-  case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
-    cc.add(rs1, insn.imm());                                                   \
-    asmjit::InvokeNode *invoke = nullptr;                                      \
-    cc.invoke(                                                                 \
-        &invoke, reinterpret_cast<size_t>(loadHelper<DATA_TYPE>),              \
-        asmjit::FuncSignature::build<DATA_TYPE, CPUState &, isa::Addr>());     \
-    invoke->setArg(0, state_ptr);                                              \
-    invoke->setArg(1, rs1);                                                    \
-    invoke->setRet(0, rd);                                                     \
     setDst(insn.rd(), rd);                                                     \
     break;                                                                     \
   }
@@ -135,6 +116,8 @@ using JitFunction = void (*)(CPUState &);
 
 class AsmJit : public JitEngine {
 public:
+  static constexpr isa::Word kZero = 0;
+
   AsmJit() = default;
 
 private:
@@ -189,7 +172,13 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto state_ptr = cc.newUIntPtr();
   func_node->setArg(0, state_ptr);
 
-  auto getReg = [&state_ptr](auto regId) {
+  auto hwZero =
+      asmjit::x86::dword_ptr(reinterpret_cast<size_t>((&(AsmJit::kZero))));
+
+  auto getReg = [&state_ptr, &hwZero](auto regId) {
+    if (regId == 0)
+      return hwZero;
+
     return asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, regs) +
                                                  isa::kWordSize * regId);
   };
@@ -238,9 +227,8 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
       PROT_ASMJIT_L_OP(LB, prot::isa::Byte)
       PROT_ASMJIT_L_OP(LH, prot::isa::Half)
-      PROT_ASMJIT_LU_OP(LBU, prot::isa::Byte)
-      PROT_ASMJIT_LU_OP(LHU, prot::isa::Half)
-
+      PROT_ASMJIT_L_OP(LBU, prot::isa::Byte)
+      PROT_ASMJIT_L_OP(LHU, prot::isa::Half)
       PROT_ASMJIT_L_OP(LW, prot::isa::Word)
 
       PROT_ASMJIT_S_OP(SB, prot::isa::Byte)

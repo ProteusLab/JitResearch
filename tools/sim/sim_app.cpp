@@ -46,18 +46,9 @@ int main(int argc, const char *argv[]) try {
   auto hart = [&] {
     prot::ElfLoader loader{elfPath};
 
-    std::unique_ptr<prot::ExecEngine> engine;
-    if (jit) {
-      try {
-        engine = prot::engine::JitFactory::createEngine(jitBackend);
-      } catch (const std::exception &e) {
-        std::cerr << "Failed to create JIT engine: " << e.what()
-                  << ", falling back to interpreter\n";
-        engine = std::make_unique<prot::engine::Interpreter>();
-      }
-    } else {
-      engine = std::make_unique<prot::engine::Interpreter>();
-    }
+    std::unique_ptr<prot::ExecEngine> engine =
+        jit ? prot::engine::JitFactory::createEngine(jitBackend)
+            : std::make_unique<prot::engine::Interpreter>();
 
     prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};
     hart.load(loader);
