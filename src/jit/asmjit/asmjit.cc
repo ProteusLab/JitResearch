@@ -15,8 +15,8 @@
 
 #define PROT_ASMJIT_R_OP(OP, ASMJIT_OP)                                        \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
-    cc.mov(rs2, getReg(insn.rs2()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
+    loadReg(rs2, insn.rs2());                                                  \
     cc.ASMJIT_OP(rs1, rs2);                                                    \
     setDst(insn.rd(), rs1);                                                    \
     break;                                                                     \
@@ -24,7 +24,7 @@
 
 #define PROT_ASMJIT_I_OP(OP, ASMJIT_OP)                                        \
   case k##OP##I: {                                                             \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
     cc.ASMJIT_OP(rs1, insn.imm());                                             \
     setDst(insn.rd(), rs1);                                                    \
     break;                                                                     \
@@ -36,7 +36,7 @@
 
 #define PROT_ASMJIT_I_SHIFT_OP(OP, ASMJIT_OP)                                  \
   case k##OP##I: {                                                             \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
     cc.ASMJIT_OP(rs1, insn.rs2());                                             \
     setDst(insn.rd(), rs1);                                                    \
     break;                                                                     \
@@ -48,8 +48,8 @@
 
 #define PROT_ASMJIT_R_CMP_OP(OP, ASMJIT_OP)                                    \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
-    cc.mov(rs2, getReg(insn.rs2()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
+    loadReg(rs2, insn.rs2());                                                  \
     cc.cmp(rs2, rs1);                                                          \
     cc.ASMJIT_OP(rd);                                                          \
     cc.movzx(rd, rd.r8());                                                     \
@@ -59,7 +59,7 @@
 
 #define PROT_ASMJIT_I_CMP_OP(OP, ASMJIT_OP)                                    \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
     cc.cmp(rs1, insn.imm());                                                   \
     cc.ASMJIT_OP(rd.r8());                                                     \
     cc.movzx(rd, rd.r8());                                                     \
@@ -69,8 +69,8 @@
 
 #define PROT_ASMJIT_B_COND_OP(OP, COND)                                        \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
-    cc.mov(rs2, getReg(insn.rs2()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
+    loadReg(rs2, insn.rs2());                                                  \
     cc.cmp(rs1, rs2);                                                          \
     cc.mov(rs1, isa::kWordSize);                                               \
     cc.mov(rs2, insn.imm());                                                   \
@@ -81,9 +81,9 @@
 
 #define PROT_ASMJIT_S_OP(OP, DATA_TYPE)                                        \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
     cc.add(rs1, insn.imm());                                                   \
-    cc.mov(rs2, getReg(insn.rs2()));                                           \
+    loadReg(rs2, insn.rs2());                                                  \
     asmjit::InvokeNode *invoke{};                                              \
     cc.invoke(&invoke, reinterpret_cast<size_t>(storeHelper<DATA_TYPE>),       \
               asmjit::FuncSignature::build<void, CPUState &, isa::Addr,        \
@@ -96,7 +96,7 @@
 
 #define PROT_ASMJIT_L_OP(OP, DATA_TYPE)                                        \
   case k##OP: {                                                                \
-    cc.mov(rs1, getReg(insn.rs1()));                                           \
+    loadReg(rs1, insn.rs1());                                                  \
     cc.add(rs1, insn.imm());                                                   \
     asmjit::InvokeNode *invoke = nullptr;                                      \
     cc.invoke(                                                                 \
@@ -116,8 +116,6 @@ using JitFunction = void (*)(CPUState &);
 
 class AsmJit : public JitEngine {
 public:
-  static constexpr isa::Word kZero = 0;
-
   AsmJit() = default;
 
 private:
@@ -172,15 +170,17 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto state_ptr = cc.newUIntPtr();
   func_node->setArg(0, state_ptr);
 
-  auto hwZero =
-      asmjit::x86::dword_ptr(reinterpret_cast<size_t>((&(AsmJit::kZero))));
 
-  auto getReg = [&state_ptr, &hwZero](auto regId) {
-    if (regId == 0)
-      return hwZero;
-
+  auto getReg = [&state_ptr](auto regId) {
     return asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, regs) +
                                                  isa::kWordSize * regId);
+  };
+
+  auto loadReg = [&state_ptr, &cc, getReg](auto reg, auto regId) {
+    if (regId == 0)
+      cc.mov(reg, 0);
+    else
+      cc.mov(reg, getReg(regId));
   };
 
   auto getPC = [&state_ptr]() {
@@ -249,12 +249,11 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       cc.mov(rd, getPC());
       cc.add(rd, isa::kWordSize);
 
-      cc.mov(pc, getReg(insn.rs1()));
+      loadReg(pc, insn.rs1());
       cc.add(pc, insn.imm());
       cc.and_(pc, ~0b1);
 
-      if (insn.rd() != 0)
-        cc.mov(getReg(insn.rd()), rd);
+      setDst(insn.rd(), rd);
 
       cc.mov(getPC(), pc);
       break;
