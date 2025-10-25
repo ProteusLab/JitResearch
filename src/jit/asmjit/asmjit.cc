@@ -298,7 +298,8 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       cc.mov(getPC(), pc);
     }
   }
-
+  cc.mov(rd, info.insns.size());
+  cc.add(asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, icount)), rd);
   cc.endFunc();
   cc.finalize();
 
