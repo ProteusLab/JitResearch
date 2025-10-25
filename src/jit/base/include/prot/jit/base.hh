@@ -3,6 +3,7 @@
 
 #include "prot/interpreter.hh"
 
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -31,6 +32,32 @@ private:
   virtual bool doJIT(CPUState &state) = 0;
 
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
+};
+
+// Helper class to store JITed code
+// Especially helpful for libraries w/out propper mem pool support
+
+using JitFunction = void (*)(CPUState &);
+class CodeHolder final {
+  struct Unmap {
+    std::size_t m_size = 0;
+
+  public:
+    explicit Unmap(std::size_t size) noexcept : m_size(size) {}
+
+    void operator()(void *ptr) const noexcept;
+  };
+
+public:
+  explicit CodeHolder(std::span<const std::byte> src);
+
+  template <typename T> [[nodiscard]] auto as() const {
+    return reinterpret_cast<T>(m_data.get());
+  }
+  void operator()(CPUState &state) const { as<JitFunction>()(state); }
+
+private:
+  std::unique_ptr<std::byte, Unmap> m_data;
 };
 } // namespace prot::engine
 

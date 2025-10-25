@@ -2,6 +2,12 @@
 
 #include <fmt/core.h>
 
+#include <cassert>
+
+extern "C" {
+#include <sys/mman.h>
+}
+
 namespace prot::engine {
 void JitEngine::step(CPUState &cpu) {
   if (doJIT(cpu)) {
@@ -48,5 +54,32 @@ auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
   }
 
   return nullptr;
+}
+
+void CodeHolder::Unmap::operator()(void *ptr) const noexcept {
+  [[maybe_unused]] auto res = ::munmap(ptr, m_size);
+  assert(res != -1);
+}
+
+CodeHolder::CodeHolder(std::span<const std::byte> src)
+    : m_data(
+          [sz = src.size()] {
+            // NOLINTNEXTLINE
+            auto *ptr = ::mmap(NULL, sz, PROT_READ | PROT_WRITE | PROT_EXEC,
+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (ptr == MAP_FAILED) {
+              throw std::runtime_error{
+                  fmt::format("Failed to allocate {} bytes for code", sz)};
+            }
+
+            return static_cast<std::byte *>(ptr);
+          }(),
+          Unmap{src.size()}) {
+  std::ranges::copy(src, m_data.get());
+
+  if (::mprotect(m_data.get(), m_data.get_deleter().m_size,
+                 PROT_READ | PROT_EXEC) == -1) {
+    throw std::runtime_error{"Failed to change protection"};
+  }
 }
 } // namespace prot::engine

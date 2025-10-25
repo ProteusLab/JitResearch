@@ -15,52 +15,6 @@ extern "C" {
 namespace prot::engine {
 
 namespace {
-struct Unmap {
-  std::size_t m_size = 0;
-
-public:
-  explicit Unmap(std::size_t size) noexcept : m_size(size) {}
-
-  void operator()(void *ptr) const noexcept {
-    [[maybe_unused]] auto res = ::munmap(ptr, m_size);
-    assert(res != -1);
-  }
-};
-
-using JitFunction = void (*)(CPUState &);
-
-class CodeHolder final {
-public:
-  explicit CodeHolder(std::span<const std::byte> src)
-      : m_data(
-            [sz = src.size()] {
-              // NOLINTNEXTLINE
-              auto *ptr = ::mmap(NULL, sz, PROT_READ | PROT_WRITE | PROT_EXEC,
-                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-              if (ptr == MAP_FAILED) {
-                throw std::runtime_error{
-                    fmt::format("Failed to allocate {} bytes for code", sz)};
-              }
-
-              return static_cast<std::byte *>(ptr);
-            }(),
-            Unmap{src.size()}) {
-    std::ranges::copy(src, m_data.get());
-    if (::mprotect(m_data.get(), m_data.get_deleter().m_size,
-                   PROT_READ | PROT_EXEC) == -1) {
-      throw std::runtime_error{"Failed to change protection"};
-    }
-  }
-
-  void operator()(CPUState &state) { asFunc()(state); }
-
-private:
-  JitFunction asFunc() const {
-    return reinterpret_cast<JitFunction>(m_data.get());
-  }
-  std::unique_ptr<std::byte, Unmap> m_data;
-};
-
 struct Lightning : public JitEngine {
   Lightning() { init_jit("JIT Research"); }
 
