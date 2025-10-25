@@ -170,7 +170,6 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto state_ptr = cc.newUIntPtr();
   func_node->setArg(0, state_ptr);
 
-
   auto getReg = [&state_ptr](auto regId) {
     return asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, regs) +
                                                  isa::kWordSize * regId);
