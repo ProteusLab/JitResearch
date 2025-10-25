@@ -175,7 +175,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
                                                  isa::kWordSize * regId);
   };
 
-  auto loadReg = [&state_ptr, &cc, getReg](auto reg, auto regId) {
+  auto loadReg = [&cc, getReg](auto reg, auto regId) {
     if (regId == 0)
       cc.mov(reg, 0);
     else
