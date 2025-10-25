@@ -1,32 +1,28 @@
-#ifndef PROT_JIT_FACTORY_HH_INCLUDED
-#define PROT_JIT_FACTORY_HH_INCLUDED
+#ifndef INCLUDE_PROT_JIT_FACTORY_HH_INCLUDED
+#define INCLUDE_PROT_JIT_FACTORY_HH_INCLUDED
 
 #include "prot/exec_engine.hh"
-#include "prot/jit/asmjit.hh"
-#include "prot/jit/llvmbasedjit.hh"
-#include "prot/jit/xbyak.hh"
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace prot::engine {
 
 class JitFactory {
 public:
-  static constexpr auto kAsmJitName = "asmjit";
-  static constexpr auto kXbyakJitName = "xbyak";
-  static constexpr auto kLLVMJitName = "llvm";
-
+  [[nodiscard]] static std::vector<std::string_view> backends();
   static std::unique_ptr<ExecEngine> createEngine(const std::string &backend);
   static bool exist(const std::string &backend);
 
 private:
-  static const std::unordered_map<std::string,
+  static const std::unordered_map<std::string_view,
                                   std::function<std::unique_ptr<ExecEngine>()>>
       kFactories;
 };
 
 } // namespace prot::engine
 
-#endif // PROT_JIT_FACTORY_HH_INCLUDED
+#endif // INCLUDE_PROT_JIT_FACTORY_HH_INCLUDED

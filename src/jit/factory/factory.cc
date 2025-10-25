@@ -1,12 +1,25 @@
 #include "include/prot/jit/factory.hh"
 
+#include <algorithm>
+#include <ranges>
+
+#include "prot/jit/asmjit.hh"
+#include "prot/jit/lightning.hh"
+#include "prot/jit/llvmbasedjit.hh"
+#include "prot/jit/xbyak.hh"
+
 namespace prot::engine {
-const std::unordered_map<std::string,
+const std::unordered_map<std::string_view,
                          std::function<std::unique_ptr<ExecEngine>()>>
-    JitFactory::kFactories = {
-        {JitFactory::kXbyakJitName, []() { return makeXbyak(); }},
-        {JitFactory::kAsmJitName, []() { return makeAsmJit(); }},
-        {JitFactory::kLLVMJitName, []() { return makeLLVMBasedJIT(); }}};
+    JitFactory::kFactories = {{"xbyak", []() { return makeXbyak(); }},
+                              {"asmjit", []() { return makeAsmJit(); }},
+                              {"llvm", []() { return makeLLVMBasedJIT(); }},
+                              {"lightning", []() { return makeLightning(); }}};
+std::vector<std::string_view> JitFactory::backends() {
+  std::vector<std::string_view> res(kFactories.size());
+  std::ranges::copy(kFactories | std::views::keys, res.begin());
+  return res;
+}
 
 std::unique_ptr<ExecEngine>
 JitFactory::createEngine(const std::string &backend) {
@@ -18,6 +31,6 @@ JitFactory::createEngine(const std::string &backend) {
 }
 
 bool JitFactory::exist(const std::string &backend) {
-  return kFactories.find(backend) != kFactories.end();
+  return kFactories.contains(backend);
 }
 } // namespace prot::engine

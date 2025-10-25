@@ -16,7 +16,6 @@ int main(int argc, const char *argv[]) try {
   std::filesystem::path elfPath;
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
-  bool jit{};
   std::string jitBackend{};
 
   {
@@ -30,14 +29,8 @@ int main(int argc, const char *argv[]) try {
         ->default_val(kDefaultStack)
         ->default_str(fmt::format("{:#x}", kDefaultStack));
 
-    app.add_flag("--jit", jit, "Use jit")->default_val(false);
-
-    app.add_option("--jit-backend", jitBackend, "JIT backend")
-        ->check(CLI::IsMember({prot::engine::JitFactory::kXbyakJitName,
-                               prot::engine::JitFactory::kAsmJitName,
-                               prot::engine::JitFactory::kLLVMJitName}))
-        ->default_val(prot::engine::JitFactory::kXbyakJitName)
-        ->needs("--jit");
+    app.add_option("--jit", jitBackend, "Use JIT & set backend")
+        ->check(CLI::IsMember(prot::engine::JitFactory::backends()));
 
     CLI11_PARSE(app, argc, argv);
   }
@@ -46,8 +39,8 @@ int main(int argc, const char *argv[]) try {
     prot::ElfLoader loader{elfPath};
 
     std::unique_ptr<prot::ExecEngine> engine =
-        jit ? prot::engine::JitFactory::createEngine(jitBackend)
-            : std::make_unique<prot::engine::Interpreter>();
+        !jitBackend.empty() ? prot::engine::JitFactory::createEngine(jitBackend)
+                            : std::make_unique<prot::engine::Interpreter>();
 
     prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};
     hart.load(loader);
