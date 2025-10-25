@@ -1,0 +1,6 @@
+add_subdirectory(qsort)
+add_subdirectory(towers)
+add_subdirectory(multiply)
+add_subdirectory(rsort)
+add_subdirectory(vvadd)
+add_subdirectory(median)
