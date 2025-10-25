@@ -8,8 +8,8 @@
 #include "prot/elf_loader.hh"
 #include "prot/hart.hh"
 #include "prot/interpreter.hh"
+#include "prot/jit/factory.hh"
 #include "prot/jit/llvmbasedjit.hh"
-#include "prot/jit/xbyak.hh"
 #include "prot/memory.hh"
 
 int main(int argc, const char *argv[]) try {
@@ -18,6 +18,7 @@ int main(int argc, const char *argv[]) try {
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
   bool jit{};
+  std::string jitBackend{};
 
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
@@ -32,6 +33,13 @@ int main(int argc, const char *argv[]) try {
 
     app.add_flag("--jit", jit, "Use jit")->default_val(false);
 
+    app.add_option("--jit-backend", jitBackend, "JIT backend")
+        ->check(CLI::IsMember({prot::engine::JitFactory::kXbyakJitName,
+                               prot::engine::JitFactory::kAsmJitName,
+                               prot::engine::JitFactory::kLLVMJitName}))
+        ->default_val(prot::engine::JitFactory::kXbyakJitName)
+        ->needs("--jit");
+
     CLI11_PARSE(app, argc, argv);
   }
 
@@ -39,7 +47,7 @@ int main(int argc, const char *argv[]) try {
     prot::ElfLoader loader{elfPath};
 
     std::unique_ptr<prot::ExecEngine> engine =
-        jit ? prot::engine::makeLLVMBasedJIT()
+        jit ? prot::engine::JitFactory::createEngine(jitBackend)
             : std::make_unique<prot::engine::Interpreter>();
 
     prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};

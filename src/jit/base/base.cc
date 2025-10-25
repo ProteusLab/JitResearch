@@ -26,7 +26,7 @@ void JitEngine::step(CPUState &cpu) {
       if (isa::isTerminator(inst->opcode())) {
         break;
       }
-      curAddr += sizeof(isa::Word);
+      curAddr += isa::kWordSize;
     }
   }
 

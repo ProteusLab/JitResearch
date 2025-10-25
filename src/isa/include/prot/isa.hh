@@ -67,6 +67,8 @@ using Byte = std::uint8_t;
 using Imm = std::uint32_t;
 using Operand = std::uint8_t;
 
+inline constexpr auto kWordSize = sizeof(Word);
+
 constexpr bool signedLess(isa::Word lhs, isa::Word rhs) {
   using Signed = std::make_signed_t<isa::Word>;
 

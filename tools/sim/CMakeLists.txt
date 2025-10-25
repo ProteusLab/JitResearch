@@ -4,8 +4,7 @@ target_link_libraries(
   PRIVATE CLI11::CLI11
           PROT::defaults
           PROT::interpreter
-          PROT::JIT::xbyak
-          PROT::JIT::llvmbased
+          PROT::JIT::factory
           PROT::elf_loader
           PROT::hart
           fmt::fmt)

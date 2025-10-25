@@ -115,7 +115,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
 
   auto getReg = [&frame, this](std::size_t regId) {
     return dword[frame.p[0] + offsetof(CPUState, regs) +
-                 sizeof(isa::Word) * regId];
+                 isa::kWordSize * regId];
   };
 
   auto getPc = [&frame, this] {
@@ -165,7 +165,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
   case kB##Op: {                                                               \
     getRs1(temp1);                                                             \
     cmp(temp1, getReg(insn.rs2()));                                            \
-    mov(temp1, sizeof(isa::Word));                                             \
+    mov(temp1, isa::kWordSize);                                                \
     mov(temp2, insn.imm());                                                    \
     cmov##cc(temp1, temp2);                                                    \
                                                                                \
@@ -195,7 +195,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
     }
     case kJAL: {
       mov(temp1, getPc());
-      add(temp1, sizeof(isa::Word));
+      add(temp1, isa::kWordSize);
       setRd(temp1);
 
       add(getPc(), insn.imm());
@@ -203,7 +203,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
     }
     case kJALR: {
       mov(temp1, getPc());
-      add(temp1, sizeof(isa::Word));
+      add(temp1, isa::kWordSize);
 
       getRs1(temp2);
       add(temp2, insn.imm());
@@ -345,7 +345,7 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
       throw std::invalid_argument{"Unexpected insn id"};
     }
     if (!isa::changesPC(insn.opcode())) {
-      add(getPc(), sizeof(isa::Word));
+      add(getPc(), isa::kWordSize);
     }
     inc(qword[frame.p[0] + offsetof(CPUState, icount)]);
   }

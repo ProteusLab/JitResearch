@@ -8,7 +8,7 @@ namespace prot {
 void ExecEngine::step(CPUState &cpu) {
   auto pc = cpu.getPC();
 
-  if (pc % sizeof(isa::Word) != 0) {
+  if (pc % isa::kWordSize != 0) {
     throw std::runtime_error{fmt::format("Misaligned PC detected: {:#x}", pc)};
   }
 
