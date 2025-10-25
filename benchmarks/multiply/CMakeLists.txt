@@ -1,7 +1,7 @@
-project(qsort_bench C)
+project(multiply_bench C)
 
-set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/qsort.c)
-set(BIN ${CMAKE_CURRENT_BINARY_DIR}/qsort.out)
+set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/multiply_main.c ${CMAKE_CURRENT_SOURCE_DIR}/multiply.c)
+set(BIN ${CMAKE_CURRENT_BINARY_DIR}/multiply.out)
 
 add_custom_command(
   OUTPUT ${BIN}
@@ -16,18 +16,19 @@ add_custom_command(
   COMMENT "Building ${BIN} for riscv32"
 )
 
-add_custom_target(build_qsort_riscv32
+add_custom_target(build_multiply_riscv32
   DEPENDS ${BIN}
 )
 
-add_custom_target(run_qsort_riscv32_bench_llvm
+add_custom_target(run_multiply_riscv32_bench_llvm
   COMMAND $<TARGET_FILE:prot_sim_app> --jit ${BIN}
-  DEPENDS build_qsort_riscv32 prot_sim_app
+  DEPENDS build_multiply_riscv32 prot_sim_app
   COMMENT "Running ${BIN} with PSIM JIT"
 )
 
-add_custom_target(run_qsort_riscv32_bench
+add_custom_target(run_multiply_riscv32_bench
   COMMAND $<TARGET_FILE:prot_sim_app> ${BIN}
-  DEPENDS build_qsort_riscv32 prot_sim_app
+  DEPENDS build_multiply_riscv32 prot_sim_app
   COMMENT "Running ${BIN} with PSIM JIT"
 )
+
