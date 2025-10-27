@@ -36,7 +36,7 @@ void JitEngine::step(CPUState &cpu) {
     }
   }
 
-  // interpret(cpu, bbIt->second);
+  interpret(cpu, bbIt->second);
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
   for (const auto &insn : info.insns) {

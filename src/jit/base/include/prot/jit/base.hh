@@ -34,6 +34,10 @@ private:
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
 };
 
+class CachedInterpreter final : public JitEngine {
+  bool doJIT([[maybe_unused]] CPUState &stat) override { return false; }
+};
+
 // Helper class to store JITed code
 // Especially helpful for libraries w/out propper mem pool support
 
