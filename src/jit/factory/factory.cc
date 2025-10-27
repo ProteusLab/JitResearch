@@ -4,6 +4,7 @@
 #include <ranges>
 
 #include "prot/jit/asmjit.hh"
+#include "prot/jit/base.hh"
 #include "prot/jit/lightning.hh"
 #include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/xbyak.hh"
@@ -11,10 +12,13 @@
 namespace prot::engine {
 const std::unordered_map<std::string_view,
                          std::function<std::unique_ptr<ExecEngine>()>>
-    JitFactory::kFactories = {{"xbyak", []() { return makeXbyak(); }},
-                              {"asmjit", []() { return makeAsmJit(); }},
-                              {"llvm", []() { return makeLLVMBasedJIT(); }},
-                              {"lightning", []() { return makeLightning(); }}};
+    JitFactory::kFactories = {
+        {"xbyak", []() { return makeXbyak(); }},
+        {"asmjit", []() { return makeAsmJit(); }},
+        {"cached-interp",
+         []() { return std::make_unique<CachedInterpreter>(); }},
+        {"llvm", []() { return makeLLVMBasedJIT(); }},
+        {"lightning", []() { return makeLightning(); }}};
 std::vector<std::string_view> JitFactory::backends() {
   std::vector<std::string_view> res(kFactories.size());
   std::ranges::copy(kFactories | std::views::keys, res.begin());
