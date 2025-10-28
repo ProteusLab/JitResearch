@@ -8,6 +8,7 @@
 #include "prot/jit/lightning.hh"
 #include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/xbyak.hh"
+#include "prot/jit/mir.hh"
 
 namespace prot::engine {
 const std::unordered_map<std::string_view,
@@ -18,7 +19,8 @@ const std::unordered_map<std::string_view,
         {"cached-interp",
          []() { return std::make_unique<CachedInterpreter>(); }},
         {"llvm", []() { return makeLLVMBasedJIT(); }},
-        {"lightning", []() { return makeLightning(); }}};
+        {"lightning", []() { return makeLightning(); }},
+                              {"mir", []() { return makeMirJit(); }}};
 std::vector<std::string_view> JitFactory::backends() {
   std::vector<std::string_view> res(kFactories.size());
   std::ranges::copy(kFactories | std::views::keys, res.begin());

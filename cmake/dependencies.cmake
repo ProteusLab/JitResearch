@@ -59,3 +59,11 @@ CPMAddPackage(
   EXCLUDE_FROM_ALL True
   DOWNLOAD_ONLY True
 )
+
+# mir
+CPMAddPackage(
+  NAME mir
+  GITHUB_REPOSITORY vnmakarov/mir
+  GIT_TAG 99c65079038f3ba9242ef646f308c266cfd7a8e5
+  EXCLUDE_FROM_ALL True
+  SYSTEM True)
