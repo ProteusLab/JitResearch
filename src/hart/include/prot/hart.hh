@@ -27,6 +27,8 @@ public:
     }
   }
 
+  auto getExitCode() { return m_cpu->getExitCode(); }
+
 private:
   std::unique_ptr<Memory> m_mem;
   std::unique_ptr<CPUState> m_cpu;

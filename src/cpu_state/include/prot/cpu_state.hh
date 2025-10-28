@@ -18,6 +18,7 @@ struct CPUState final {
   bool finished{false};
   Memory *memory{nullptr};
   isa::Icount icount{0};
+  isa::Word m_ExitCode{0};
 
   explicit CPUState(Memory *mem) : memory(mem) {}
 
@@ -34,6 +35,7 @@ struct CPUState final {
   [[nodiscard]] isa::Word getSysCallNum() const { return getReg(17); }
   [[nodiscard]] isa::Word getSysCallArg(std::size_t num) const;
   [[nodiscard]] isa::Word getSysCallRet() const { return getReg(10); }
+  [[nodiscard]] isa::Word getExitCode() const { return m_ExitCode; }
 
   void emulateSysCall();
 
