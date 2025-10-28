@@ -112,7 +112,7 @@ private:
     assert(wasNew);
 
     it->second(state);
-
+    // state.dump(std::cout);
     return true;
   }
 
@@ -322,7 +322,7 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     }
 
     case kECALL: {
-      MIR_var_t syscall_args[] = {{MIR_T_P, "state", sizeof(CPUState)}};
+      MIR_var_t syscall_args[] = {{MIR_T_P, "state", 0/*sizeof(CPUState)*/}};
       MIR_item_t syscall_proto =
           MIR_new_proto_arr(ctx, "syscall_proto", 0, nullptr, 1, syscall_args);
 
