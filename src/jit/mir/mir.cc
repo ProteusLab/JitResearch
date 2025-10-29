@@ -1,5 +1,8 @@
+extern "C" {
 #include "mir.h"
 #include "mir-gen.h"
+}
+
 #include "prot/jit/base.hh"
 
 namespace prot::engine {
