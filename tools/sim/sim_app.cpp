@@ -53,6 +53,7 @@ int main(int argc, const char *argv[]) try {
   hart.run();
   hart.dump(std::cout);
   fmt::println("Finish execution");
+  return hart.getExitCode();
 } catch (const std::exception &ex) {
   fmt::println(std::cerr, "Caught an exception of type {}, message: {}",
                typeid(ex).name(), ex.what());

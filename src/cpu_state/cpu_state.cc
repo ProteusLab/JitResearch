@@ -41,6 +41,7 @@ void CPUState::doExit(isa::Word code) {
   fmt::println("Exiting with code {}...", code);
   fmt::println("Icount: {}", fmt::group_digits(icount));
   fmt::println("***********************");
+  m_ExitCode = code;
 }
 
 isa::Word CPUState::getSysCallArg(std::size_t num) const {
