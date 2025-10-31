@@ -18,35 +18,12 @@ namespace {
 struct Lightning : public JitEngine {
   Lightning() { init_jit("JIT Research"); }
 
-  bool doJIT(CPUState &state) override {
-    const auto pc = state.getPC();
-    auto found = m_cacheTB.find(pc);
-    if (found != m_cacheTB.end()) {
-      found->second(state);
-      return true;
-    }
-
-    const auto *bbInfo = getBBInfo(pc);
-    if (bbInfo == nullptr) {
-      // No such bb yet
-      return false;
-    }
-
-    auto code = translate(*bbInfo);
-    auto [it, wasNew] = m_cacheTB.emplace(pc, std::move(code));
-    assert(wasNew);
-
-    it->second(state);
-
-    return true;
-  }
-
-  [[nodiscard]] CodeHolder translate(const BBInfo &info);
+  [[nodiscard]] JitFunction translate(const BBInfo &info) override;
 
   ~Lightning() override { finish_jit(); }
 
 private:
-  std::unordered_map<isa::Addr, CodeHolder> m_cacheTB;
+  std::vector<CodeHolder> m_holders;
 };
 
 void storeHelper(CPUState &state, isa::Addr addr,
@@ -86,7 +63,7 @@ private:
   std::unique_ptr<jit_state_t, Deleter> m_ptr;
 };
 
-CodeHolder Lightning::translate(const BBInfo &info) {
+JitFunction Lightning::translate(const BBInfo &info) {
   JITStateHolder holder;
   jit_state_t *_jit = holder.get();
 
@@ -331,13 +308,11 @@ CodeHolder Lightning::translate(const BBInfo &info) {
   jit_stxi_i(offsetof(CPUState, icount), JIT_V0, JIT_R0);
   jit_epilog();
 
-  auto code = std::move(holder).emit();
-
   // fmt::println("CODE!!");
   // jit_disassemble();
   // fmt::println("CODE END");
 
-  return code;
+  return m_holders.emplace_back(std::move(holder).emit()).as<JitFunction>();
 }
 } // namespace
 
