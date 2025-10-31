@@ -43,7 +43,7 @@ int main(int argc, const char *argv[]) try {
         !jitBackend.empty() ? prot::engine::JitFactory::createEngine(jitBackend)
                             : std::make_unique<prot::engine::Interpreter>();
 
-    prot::Hart hart{prot::memory::makePaged(12), std::move(engine)};
+    prot::Hart hart{prot::memory::makePlain(4ULL << 30U), std::move(engine)};
     hart.load(loader);
     hart.setSP(stackTop);
 
