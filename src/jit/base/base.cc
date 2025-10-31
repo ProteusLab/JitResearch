@@ -10,14 +10,17 @@ extern "C" {
 
 namespace prot::engine {
 void JitEngine::step(CPUState &cpu) {
-  while (!cpu.finished) {
-    if (doJIT(cpu)) {
+  while (!cpu.finished) [[likely]] {
+    // colllect bb
+    const auto pc = cpu.getPC();
+    auto found = m_tbCache.lookup(pc);
+    if (found != nullptr) [[likely]] {
+      found(cpu);
       continue;
     }
 
-    // colllect bb
-    auto [bbIt, wasNew] = m_cacheBB.try_emplace(cpu.getPC());
-    if (wasNew) {
+    auto [bbIt, wasNew] = m_cacheBB.try_emplace(pc);
+    if (wasNew) [[unlikely]] {
       auto curAddr = bbIt->first;
       auto &bb = bbIt->second;
 
@@ -34,6 +37,13 @@ void JitEngine::step(CPUState &cpu) {
           break;
         }
         curAddr += isa::kWordSize;
+      }
+    } else if (bbIt->second.num_exec >= kExecThreshold) [[likely]] {
+      auto code = translate(bbIt->second);
+      m_tbCache.insert(pc, code);
+      if (code != nullptr) [[likely]] {
+        code(cpu);
+        continue;
       }
     }
 

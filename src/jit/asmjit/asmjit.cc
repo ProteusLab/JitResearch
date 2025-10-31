@@ -119,34 +119,9 @@ public:
   AsmJit() = default;
 
 private:
-  bool doJIT(CPUState &state) override {
-    const auto pc = state.getPC();
-    auto found = m_cacheTB.find(pc);
-    if (found != m_cacheTB.end()) {
-      found->second(state);
-      return true;
-    }
-
-    const auto *bbInfo = getBBInfo(pc);
-    if (bbInfo == nullptr) {
-      // No such bb yet
-      return false;
-    }
-
-    auto holder = translate(*bbInfo);
-
-    auto [it, wasNew] = m_cacheTB.try_emplace(pc, std::move(holder));
-    assert(wasNew);
-
-    it->second(state);
-
-    return true;
-  }
-
-  [[nodiscard]] JitFunction translate(const BBInfo &info);
+  [[nodiscard]] JitFunction translate(const BBInfo &info) override;
 
   asmjit::JitRuntime runtime;
-  std::unordered_map<isa::Addr, JitFunction> m_cacheTB;
 };
 
 template <typename T> void storeHelper(CPUState &state, isa::Addr addr, T val) {

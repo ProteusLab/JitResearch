@@ -20,32 +20,9 @@ public:
       : Xbyak::CodeGenerator{Xbyak::DEFAULT_MAX_CODE_SIZE, Xbyak::AutoGrow} {}
 
 private:
-  bool doJIT(CPUState &state) override {
-    const auto pc = state.getPC();
-    auto found = m_cacheTB.find(pc);
-    if (found != m_cacheTB.end()) {
-      found->second(state);
-      return true;
-    }
+  [[nodiscard]] JitFunction translate(const BBInfo &info) override;
 
-    const auto *bbInfo = getBBInfo(pc);
-    if (bbInfo == nullptr) {
-      // No such bb yet
-      return false;
-    }
-
-    auto holder = translate(*bbInfo);
-
-    auto [it, wasNew] = m_cacheTB.try_emplace(pc, std::move(holder));
-    assert(wasNew);
-
-    it->second(state);
-
-    return true;
-  }
-
-  [[nodiscard]] CodeHolder translate(const BBInfo &info);
-  std::unordered_map<isa::Addr, CodeHolder> m_cacheTB;
+  std::vector<CodeHolder> m_holders;
 };
 
 void storeHelper(CPUState &state, isa::Addr addr,
@@ -59,7 +36,7 @@ template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
 
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
-CodeHolder XByakJit::translate(const BBInfo &info) {
+JitFunction XByakJit::translate(const BBInfo &info) {
   reset(); // XByak specific (CodeGenerator is about a PAGE size!!, so reuse it)
   Xbyak::util::StackFrame frame{this, 3, 3 | Xbyak::util::UseRCX};
 
@@ -306,9 +283,9 @@ CodeHolder XByakJit::translate(const BBInfo &info) {
 
   frame.close();
   ready();
-
   // Copy data to holder
-  return CodeHolder{std::as_bytes(std::span{getCode(), getSize()})};
+  return m_holders.emplace_back(std::as_bytes(std::span{getCode(), getSize()}))
+      .as<JitFunction>();
 } // namespace
 } // namespace
 

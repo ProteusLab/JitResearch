@@ -50,7 +50,7 @@ llvm::Type *getCPUStateType(llvm::LLVMContext &Ctx) {
   llvm::ArrayType *regsArrayType = llvm::ArrayType::get(wordType, 32);
 
   std::vector<llvm::Type *> structMemberTypes = {
-      regsArrayType, pcType, finishedType, memoryPtrType, icountType};
+      regsArrayType, pcType, finishedType, memoryPtrType, icountType, wordType};
 
   llvm::StructType *cpuStateType = llvm::StructType::create(
       Ctx, structMemberTypes, "CPUState", /*IsPacked=*/false);
@@ -98,7 +98,7 @@ void doSyscall(CPUState &state) { state.emulateSysCall(); }
 
 class LLVMBasedJIT : public JitEngine {
   std::unique_ptr<llvm::orc::LLJIT> m_jit;
-  std::unordered_map<isa::Word, llvm::orc::ExecutorAddr> m_cache;
+  std::size_t m_moduleId{};
 
   using TBFunc = void (*)(CPUState &);
 
@@ -106,43 +106,17 @@ public:
   LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT);
 
 private:
-  bool doJIT(CPUState &state) override {
-    const auto pc = state.getPC();
-    llvm::orc::ExecutorAddr found;
-    auto it = m_cache.find(pc);
-    if (it != m_cache.end()) {
-      found = it->second;
-      std::invoke(found.toPtr<TBFunc>(), state);
-      const auto *bbInfo = getBBInfo(pc);
-      state.icount += bbInfo->insns.size();
-      return true;
-    }
-
-    const auto *bbInfo = getBBInfo(pc);
-    if (bbInfo == nullptr) {
-      return false;
-    }
-
-    auto [module, ctx] = translate(pc, *bbInfo);
+  JitFunction translate(const BBInfo &info) override {
+    auto &&[module, ctx] = doTranslate(info);
     llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(ctx));
     tsm = optimizeIRModule(std::move(tsm));
     auto err = m_jit->addIRModule(std::move(tsm));
-    if (err) {
-      return false;
-    }
-
-    bool hasFound;
-    std::tie(it, hasFound) =
-        m_cache.insert({pc, *m_jit->lookup(std::to_string(pc))});
-    found = it->second;
-    assert(found);
-    std::invoke(found.toPtr<TBFunc>(), state);
-    state.icount += bbInfo->insns.size();
-    return true;
+    assert(!err);
+    return *m_jit->lookup(std::to_string(m_moduleId++))->toPtr<JitFunction>();
   }
 
   std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>>
-  translate(isa::Word pc, const BBInfo &info);
+  doTranslate(const BBInfo &info);
   static llvm::orc::ThreadSafeModule
   optimizeIRModule(llvm::orc::ThreadSafeModule TSM);
 };
@@ -180,16 +154,17 @@ llvm::Function *getOrDeclareMemoryFunction(llvm::Module &M,
 }
 
 std::pair<std::unique_ptr<llvm::Module>, std::unique_ptr<llvm::LLVMContext>>
-LLVMBasedJIT::translate(const isa::Word pc, const BBInfo &info) {
+LLVMBasedJIT::doTranslate(const BBInfo &info) {
+  const auto &name = std::to_string(m_moduleId);
   auto ctxPtr = std::make_unique<llvm::LLVMContext>();
-  auto modulePtr = std::make_unique<llvm::Module>(std::to_string(pc), *ctxPtr);
+  auto modulePtr = std::make_unique<llvm::Module>(name, *ctxPtr);
   llvm::IRBuilder<> builder{*ctxPtr};
 
   auto *fnTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(*ctxPtr),
       {llvm::PointerType::getUnqual(getCPUStateType(*ctxPtr))}, false);
-  auto *fn = llvm::Function::Create(fnTy, llvm::Function::ExternalLinkage,
-                                    std::to_string(pc), *modulePtr);
+  auto *fn = llvm::Function::Create(fnTy, llvm::Function::ExternalLinkage, name,
+                                    *modulePtr);
 
   llvm::orc::MangleAndInterner mangle(m_jit->getExecutionSession(),
                                       m_jit->getDataLayout());
@@ -218,8 +193,21 @@ LLVMBasedJIT::translate(const isa::Word pc, const BBInfo &info) {
       }};
   llvm::BasicBlock *entryBB = llvm::BasicBlock::Create(*ctxPtr, "entry", fn);
   builder.SetInsertPoint(entryBB);
-
   std::ranges::for_each(info.insns, std::bind_front(buildInstruction, data));
+  auto *icountType =
+      llvm::IntegerType::get(*ctxPtr, sizeofBits<decltype(CPUState::icount)>());
+  auto *addend = llvm::ConstantInt::get(icountType, info.insns.size());
+  auto *cpuStructTy = getCPUStateType(data.Builder.getContext());
+
+  auto *cpuArg = data.CurrentFunction->getArg(0);
+
+  llvm::Value *icPtr = data.Builder.CreateStructGEP(cpuStructTy, cpuArg, 4);
+  auto *icVal = data.Builder.CreateLoad(icountType, icPtr);
+  auto *newVal = data.Builder.CreateAdd(icVal, addend);
+  data.Builder.CreateStore(newVal, icPtr);
+
+  // data.Module.dump();
+  // throw 1;
   data.Builder.CreateRetVoid();
 
   return std::make_pair(std::move(modulePtr), std::move(ctxPtr));

@@ -172,32 +172,9 @@ public:
   }
 
 private:
-  bool doJIT(CPUState &state) override {
-    const auto pc = state.getPC();
-    auto found = m_cacheTB.find(pc);
-    if (found != m_cacheTB.end()) {
-      found->second(state);
-      return true;
-    }
-
-    const auto *bbInfo = getBBInfo(pc);
-    if (bbInfo == nullptr) {
-      return false;
-    }
-
-    auto func = translate(*bbInfo);
-    auto [it, wasNew] = m_cacheTB.try_emplace(pc, func);
-    assert(wasNew);
-
-    it->second(state);
-
-    return true;
-  }
-
-  [[nodiscard]] JitFunction translate(const BBInfo &info);
+  [[nodiscard]] JitFunction translate(const BBInfo &info) override;
 
   MIR_context_t ctx;
-  std::unordered_map<isa::Addr, JitFunction> m_cacheTB;
   std::unordered_map<std::string, MIR_item_t> m_func_proto{};
 };
 
@@ -413,10 +390,7 @@ JitFunction MIRJit::translate(const BBInfo &info) {
 
   MIR_link(ctx, MIR_set_gen_interface, nullptr);
 
-  JitFunction compiled_func =
-      reinterpret_cast<JitFunction>(MIR_gen(ctx, func_item));
-
-  return compiled_func;
+  return reinterpret_cast<JitFunction>(MIR_gen(ctx, func_item));
 }
 
 } // namespace
