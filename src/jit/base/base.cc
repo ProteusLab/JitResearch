@@ -10,33 +10,35 @@ extern "C" {
 
 namespace prot::engine {
 void JitEngine::step(CPUState &cpu) {
-  if (doJIT(cpu)) {
-    return;
-  }
-
-  // colllect bb
-  auto [bbIt, wasNew] = m_cacheBB.try_emplace(cpu.getPC());
-  if (wasNew) {
-    auto curAddr = bbIt->first;
-    auto &bb = bbIt->second;
-
-    while (true) {
-      auto bytes = cpu.memory->read<isa::Word>(curAddr);
-      auto inst = isa::Instruction::decode(bytes);
-      if (!inst.has_value()) {
-        throw std::runtime_error{
-            fmt::format("Cannot decode bytes: {:#x}", bytes)};
-      }
-
-      bb.insns.push_back(*inst);
-      if (isa::isTerminator(inst->opcode())) {
-        break;
-      }
-      curAddr += isa::kWordSize;
+  while (!cpu.finished) {
+    if (doJIT(cpu)) {
+      continue;
     }
-  }
 
-  interpret(cpu, bbIt->second);
+    // colllect bb
+    auto [bbIt, wasNew] = m_cacheBB.try_emplace(cpu.getPC());
+    if (wasNew) {
+      auto curAddr = bbIt->first;
+      auto &bb = bbIt->second;
+
+      while (true) {
+        auto bytes = cpu.memory->read<isa::Word>(curAddr);
+        auto inst = isa::Instruction::decode(bytes);
+        if (!inst.has_value()) {
+          throw std::runtime_error{
+              fmt::format("Cannot decode bytes: {:#x}", bytes)};
+        }
+
+        bb.insns.push_back(*inst);
+        if (isa::isTerminator(inst->opcode())) {
+          break;
+        }
+        curAddr += isa::kWordSize;
+      }
+    }
+
+    interpret(cpu, bbIt->second);
+  }
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
   for (const auto &insn : info.insns) {
