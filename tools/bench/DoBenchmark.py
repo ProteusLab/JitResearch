@@ -42,19 +42,19 @@ def build_hist(list_data: list[list[BenchmarkList]], bench_names: list[str]):
     for j in range(num_bars_per_group):
         for i in range(num_groups):
             data["Benchmark"].append(bench_names[i])
-            data["MIPS"].append(np.mean(list_data[i][j].mips()))
+            data["MIPS"].append(list_data[i][j].mips())
             data["Backend"].append(list_data[i][j].name)
 
     df = pd.DataFrame(data)
     print(df)
-    filtered_df = df[~df["Backend"].isin(["interp", "cached interp"])]
+    filtered_df = df[~df["Backend"].isin(["nopbench"])]
     avg_df = (
-        filtered_df.groupby("Benchmark")
+        filtered_df.groupby("Backend")
         .agg(
-            MIPS=("MIPS", "mean"),
+            MIPS=("MIPS", statistics.geometric_mean),
         )
         .reset_index()
-        .assign(Backend="averaged-jit")
+        .assign(Benchmark="geomean")
     )
 
     final_df = pd.concat([df, avg_df], ignore_index=True)
@@ -125,8 +125,16 @@ def benchmark_name(elf_path: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool for benchmarking")
     parser.add_argument("sim_bin", type=Path, help="Path to sim binary")
-    parser.add_argument("elf", type=Path, nargs="+", help="Path(s) to benchmarks")
-    parser.add_argument("-t", "--times", type=int, default=2, help="Amount of times to run each bench")
+    parser.add_argument(
+        "elf", type=Path, nargs="+", help="Path(s) to benchmarks"
+    )
+    parser.add_argument(
+        "-t",
+        "--times",
+        type=int,
+        default=2,
+        help="Amount of times to run each bench",
+    )
     parser.add_argument("--thres", type=int, default=0, help="JIT threshold")
 
     args = parser.parse_args()
