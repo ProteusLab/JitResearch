@@ -54,13 +54,6 @@ CPMAddPackage(
   OPTIONS "ASMJIT_STATIC ON"
   OPTIONS "ASMJIT_NO_DEPRECATED ON")
 
-CPMAddPackage(
-  NAME lightning
-  URL "https://ftp.gnu.org/gnu/lightning/lightning-2.2.3.tar.gz"
-  EXCLUDE_FROM_ALL True
-  DOWNLOAD_ONLY True
-)
-
 # mir
 CPMAddPackage(
   NAME mir
