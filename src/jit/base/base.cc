@@ -1,8 +1,10 @@
 #include "prot/jit/base.hh"
 
 #include <fmt/core.h>
+#include <fmt/ostream.h>
 
 #include <cassert>
+#include <iostream>
 
 extern "C" {
 #include <sys/mman.h>
