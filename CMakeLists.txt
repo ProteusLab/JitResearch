@@ -10,7 +10,6 @@ endif()
 option(PROT_ENABLE_WERROR "Enable -Werror option (CI)" OFF)
 option(PROT_BUILD_BENCHMARKS
        "Enable benchmarks build (requires riscv gnu toolchain)" OFF)
-enable_testing()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -21,6 +20,7 @@ include(dependencies)
 include(utils)
 
 add_subdirectory(third_party)
+enable_testing()
 add_subdirectory(src)
 add_subdirectory(tools)
 
@@ -30,7 +30,7 @@ if(PROT_BUILD_BENCHMARKS)
       -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}
       -DCMAKE_BUILD_TYPE:STRING=Release
       -DCMAKE_TOOLCHAIN_FILE:PATH=${RISCV_TOOLCHAIN})
-  if (DEFINED RISCV_TOOLCHAIN_DIR)
+  if(DEFINED RISCV_TOOLCHAIN_DIR)
     list(APPEND DEFAULT_ARGS -DRISCV_TOOLCHAIN_DIR:PATH=${RISCV_TOOLCHAIN_DIR})
   endif()
   ExternalProject_Add(
