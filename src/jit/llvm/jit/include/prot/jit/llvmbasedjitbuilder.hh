@@ -5,11 +5,8 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Support/Error.h>
-#include <memory>
 
-#include "prot/exec_engine.hh"
 #include "prot/isa.hh"
-#include "llvm/IR/DerivedTypes.h"
 
 namespace prot::engine {
 
