@@ -35,7 +35,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        compiler: [g++, clang++]
+        # compiler: [g++-14, clang++-21]
+        compiler: [clang++-21]
         generator: [Ninja]
         export_commands: [OFF]
         build_type: [Debug, Release]
@@ -55,6 +56,14 @@ jobs:
       - name: Install Ninja
         if: ${{ matrix.generator == 'Ninja' }}
         run: sudo apt install ninja-build
+
+      - name: Install Clang 21
+        if: ${{ matrix.compiler == 'clang++-21' }}
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -sc)/ llvm-toolchain-$(lsb_release -sc)-21 main"
+          sudo apt update
+          sudo apt install clang-21 lldb-21 lld-21
 
       - name: Install clang-tidy
         if: ${{ matrix.export_commands == 'ON' }}
