@@ -70,23 +70,6 @@ def geomean(values: np.ndarray) -> float:
     return float(np.exp(np.mean(np.log(v)))) if len(v) > 0 else float("nan")
 
 
-def auto_scale(max_val: float) -> tuple[int, float]:
-    """
-    Return (exp3, divisor) for a human-readable axis scale.
-    exp3 is the largest multiple of 3 such that max_val / 10^exp3 >= 1,
-    clamped to [0, 12]  (covers 1 … 1E12).
-    """
-    if not np.isfinite(max_val) or max_val <= 0:
-        return 0, 1.0
-    exp3 = int(np.floor(np.log10(max_val) / 3) * 3)
-    exp3 = max(0, min(exp3, 12))
-    return exp3, float(10 ** exp3)
-
-
-def axis_label(metric: str, exp3: int) -> str:
-    return f"{metric}  [1E{exp3}]" if exp3 > 0 else metric
-
-
 # Muted/earthy palette — desaturated, professional
 _PALETTE = [
     "#5B7FA6",  # muted steel blue
@@ -162,6 +145,7 @@ def bars_plot(
     stdev: pd.DataFrame,
     metric: str,
     out_dir: Path,
+    logy: bool,
 ) -> None:
     series = means.columns.tolist()
     benchmarks = means.index.tolist()
@@ -169,10 +153,6 @@ def bars_plot(
     if n_g == 0 or n_s == 0:
         print(f"  No data to plot for '{metric}', skipping.")
         return
-
-    all_vals = means.to_numpy(dtype=float)
-    max_val = float(np.nanmax(all_vals)) if all_vals.size else 1.0
-    exp3, divisor = auto_scale(max_val if np.isfinite(max_val) else 1.0)
 
     group_width = 0.8
     bar_width = group_width / n_s
@@ -184,9 +164,9 @@ def bars_plot(
     for i, (s, color) in enumerate(zip(series, colors)):
         offsets = x - group_width / 2 + bar_width * (i + 0.5)
         vals = means[s].to_numpy(dtype=float)
-        errs = stdev[s].to_numpy(dtype=float) / divisor if s in stdev.columns else None
+        errs = stdev[s].to_numpy(dtype=float) if s in stdev.columns else None
         bars = ax.bar(
-            offsets, vals / divisor, width=bar_width * 0.9,
+            offsets, vals, width=bar_width * 0.9,
             label=s, color=color, zorder=3,
             yerr=errs, capsize=3,
             error_kw=dict(elinewidth=1, ecolor="black", alpha=0.6, capthick=1),
@@ -201,10 +181,16 @@ def bars_plot(
 
     ax.set_xticks(x)
     ax.set_xticklabels(benchmarks, rotation=15, ha="right", fontsize=9)
-    ax.set_ylabel(axis_label(metric, exp3), fontsize=10)
+    ax.set_ylabel(metric, fontsize=10)
     ax.set_title(metric, fontsize=12, fontweight="bold")
     ax.legend(fontsize=9, framealpha=0.7)
-    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
+    if logy:
+        ax.set_yscale("log", nonpositive="clip")
+    else:
+        fmt = ticker.ScalarFormatter(useMathText=True)
+        fmt.set_scientific(True)
+        fmt.set_powerlimits((-3, 3))
+        ax.yaxis.set_major_formatter(fmt)
     ax.grid(axis="y", linestyle="--", alpha=0.4, zorder=0)
     ax.set_axisbelow(True)
     ax.spines[["top", "right"]].set_visible(False)
@@ -229,7 +215,7 @@ def run_bars(args: argparse.Namespace, out_dir: Path) -> None:
         if means.empty:
             print(f"  No data for '{metric}', skipping.")
             continue
-        bars_plot(means, stdev, metric, out_dir)
+        bars_plot(means, stdev, metric, out_dir, logy=args.logy)
 
 
 # ── graphs regime ─────────────────────────────────────────────────────────────
@@ -288,6 +274,8 @@ def graphs_plot(
     base_metric: str,
     dep_metric: str,
     out_dir: Path,
+    logx: bool,
+    logy: bool,
 ) -> None:
     all_benches: set[str] = set()
     for bmap in series_data.values():
@@ -298,11 +286,6 @@ def graphs_plot(
     benches = sorted(all_benches)
     series_names = list(series_data.keys())
     colors = palette(len(series_names))
-
-    all_x = [p[0] for bmap in series_data.values() for pts in bmap.values() for p in pts]
-    all_y = [p[1] for bmap in series_data.values() for pts in bmap.values() for p in pts]
-    x_exp3, x_div = auto_scale(max(all_x, default=1.0))
-    y_exp3, y_div = auto_scale(max(all_y, default=1.0))
 
     n_benches = len(benches)
     ncols = min(3, n_benches)
@@ -323,9 +306,9 @@ def graphs_plot(
             pts = series_data.get(series, {}).get(bench)
             if not pts:
                 continue
-            xs  = np.array([p[0] for p in pts]) / x_div
-            ys  = np.array([p[1] for p in pts]) / y_div
-            std = np.array([p[2] for p in pts]) / y_div
+            xs  = np.array([p[0] for p in pts])
+            ys  = np.array([p[1] for p in pts])
+            std = np.array([p[2] for p in pts])
 
             line, = ax.plot(
                 xs, ys, marker="o", color=color,
@@ -338,14 +321,26 @@ def graphs_plot(
                 legend_labels.append(series)
 
         ax.set_title(bench, fontsize=10, fontweight="bold")
-        ax.set_xlabel(axis_label(base_metric, x_exp3), fontsize=8)
-        ax.set_ylabel(axis_label(dep_metric,  y_exp3), fontsize=8)
+        ax.set_xlabel(base_metric, fontsize=8)
+        ax.set_ylabel(dep_metric, fontsize=8)
+        if logx:
+            ax.set_xscale("log", nonpositive="clip")
+        else:
+            x_fmt = ticker.ScalarFormatter(useMathText=True)
+            x_fmt.set_scientific(True)
+            x_fmt.set_powerlimits((-3, 3))
+            ax.xaxis.set_major_formatter(x_fmt)
+        if logy:
+            ax.set_yscale("log", nonpositive="clip")
+        else:
+            y_fmt = ticker.ScalarFormatter(useMathText=True)
+            y_fmt.set_scientific(True)
+            y_fmt.set_powerlimits((-3, 3))
+            ax.yaxis.set_major_formatter(y_fmt)
         ax.grid(True, linestyle="--", alpha=0.4, zorder=0)
         ax.set_axisbelow(True)
         ax.spines[["top", "right"]].set_visible(False)
         ax.tick_params(labelsize=8)
-        ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
-        ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
 
     for idx in range(n_benches, nrows * ncols):
         r, c = divmod(idx, ncols)
@@ -377,7 +372,8 @@ def run_graphs(args: argparse.Namespace, out_dir: Path) -> None:
         if not series_data:
             print("  No valid data found, skipping.")
             continue
-        graphs_plot(series_data, args.base_metric, dep_metric, out_dir)
+        graphs_plot(series_data, args.base_metric, dep_metric, out_dir,
+                    logx=args.logx, logy=args.logy)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -443,6 +439,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--out", default="plots", metavar="DIR",
         help="Output directory for SVG files (default: ./plots).",
+    )
+    p.add_argument(
+        "--logx", action="store_true",
+        help="Use logarithmic scale for the X axis (graphs regime only).",
+    )
+    p.add_argument(
+        "--logy", action="store_true",
+        help="Use logarithmic scale for the Y axis.",
     )
 
     return p.parse_args()
