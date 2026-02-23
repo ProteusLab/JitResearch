@@ -64,3 +64,16 @@ CPMAddPackage(
   OPTIONS "BUILD_TESTING OFF"
   DOWNLOAD_ONLY True
 )
+
+# perf-cpp
+CPMAddPackage(
+  NAME perf-cpp
+  GITHUB_REPOSITORY jmuehlig/perf-cpp
+  GIT_TAG v0.12.6
+  # Don't add EXCLUDE_FROM_ALL, as perf-cpp will be used as shared library
+  SYSTEM True
+  OPTIONS
+  "BUILD_LIB_SHARED ON"
+  "CMAKE_INSTALL_LIBRARY_DIR ${CMAKE_INSTALL_PREFIX}/lib"
+)
+target_include_directories(perf-cpp PUBLIC $<BUILD_INTERFACE:${perf-cpp_SOURCE_DIR}/include>)
