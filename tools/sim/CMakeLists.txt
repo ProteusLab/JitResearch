@@ -2,6 +2,7 @@ add_executable(prot_sim_app sim_app.cpp)
 target_link_libraries(
   prot_sim_app
   PRIVATE CLI11::CLI11
+          perf-cpp
           PROT::defaults
           PROT::interpreter
           PROT::JIT::factory
