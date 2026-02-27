@@ -7,6 +7,10 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
                PROPERTY VALUE "${CMAKE_BINARY_DIR}/install")
 endif()
 
+# Add rpath to link with dependencies shared libraries
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_INSTALL_RPATH "\${ORIGIN}/../lib")
+
 option(PROT_ENABLE_WERROR "Enable -Werror option (CI)" OFF)
 option(PROT_BUILD_BENCHMARKS
        "Enable benchmarks build (requires riscv gnu toolchain)" OFF)
