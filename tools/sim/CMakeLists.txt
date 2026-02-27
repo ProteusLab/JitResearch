@@ -6,6 +6,7 @@ target_link_libraries(
           PROT::defaults
           PROT::interpreter
           PROT::JIT::factory
+          PROT::JIT::base
           PROT::elf_loader
           PROT::hart
           fmt::fmt)

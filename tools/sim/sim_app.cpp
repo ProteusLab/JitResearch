@@ -1,11 +1,17 @@
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <iterator>
+#include <optional>
 #include <ranges>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -15,39 +21,61 @@
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
 
+#include <perfcpp/counter_definition.h>
 #include <perfcpp/counter_result.h>
 #include <perfcpp/event_counter.h>
 
 #include "prot/elf_loader.hh"
 #include "prot/hart.hh"
 #include "prot/interpreter.hh"
+#include "prot/jit/base.hh"
 #include "prot/jit/factory.hh"
 #include "prot/memory.hh"
 
 namespace {
 
 struct RunConfig {
-  const std::filesystem::path &elfPath;
-  prot::isa::Addr stackTop = 0x7fffffff;
-  const std::string &jitBackend;
-  const std::vector<std::string> &perfEvents;
+  std::filesystem::path elfPath;
+  prot::isa::Addr stackTop = 0;
+  std::string jitBackend;
+  size_t jitTranslationThreshold = 0;
+
+  std::vector<std::string> metrics;
   bool dumpHart = false;
 };
 
 struct RunResult {
   uint32_t status = 0;
-  uint64_t guestIc = 0;
-  perf::CounterResult perfRes;
+  struct Metrics {
+    std::vector<std::pair<std::string, double>> metrics;
+
+    std::optional<double> operator[](std::string_view name) {
+      if (auto it = std::ranges::find_if(
+              metrics, [&](const auto &s) { return s == name; },
+              &decltype(metrics)::value_type::first);
+          it != metrics.end()) {
+        return it->second;
+      }
+
+      return std::nullopt;
+    }
+  } metrics;
 };
 
 RunResult run(const RunConfig &cfg) {
   auto hart = [&] {
     prot::ElfLoader loader{cfg.elfPath};
 
+    bool hasJit = !cfg.jitBackend.empty();
+
     std::unique_ptr<prot::ExecEngine> engine =
-        !cfg.jitBackend.empty()
-            ? prot::engine::JitFactory::createEngine(cfg.jitBackend)
-            : std::make_unique<prot::engine::Interpreter>();
+        hasJit ? prot::engine::JitFactory::createEngine(cfg.jitBackend)
+               : std::make_unique<prot::engine::Interpreter>();
+
+    if (hasJit) {
+      auto *jit = dynamic_cast<prot::engine::JitEngine *>(engine.get());
+      jit->setTranslationThreshold(cfg.jitTranslationThreshold);
+    }
 
     prot::Hart hart{prot::memory::makePlain(4ULL << 30U), std::move(engine)};
     hart.load(loader);
@@ -56,8 +84,23 @@ RunResult run(const RunConfig &cfg) {
     return hart;
   }();
 
+  auto perfMetrics = [&]() {
+    auto rng = cfg.metrics | std::views::filter([](const auto &name) {
+                 const auto &defs = perf::CounterDefinition::global();
+                 return defs.is_metric(name) || !defs.counter(name).empty() ||
+                        defs.is_time_event(name);
+               }) |
+               std::views::common;
+
+    return std::vector<std::string>{rng.begin(), rng.end()};
+  }();
+
   auto eventCounter = perf::EventCounter{};
-  eventCounter.add(cfg.perfEvents);
+  if (!eventCounter.add(perfMetrics, perf::EventCounter::Schedule::Group)) {
+    throw std::runtime_error(
+        fmt::format("Failed to add perf events group: {{{}}}",
+                    fmt::join(perfMetrics, ",")));
+  }
 
   eventCounter.start();
   hart.run();
@@ -67,66 +110,90 @@ RunResult run(const RunConfig &cfg) {
     hart.dump(std::cout);
   }
 
+  std::vector<std::pair<std::string, double>> metrics{};
+
+  for (const auto &metric : cfg.metrics) {
+    // Dump perf metrics
+    if (auto perfMetric = eventCounter.result().get(metric)) {
+      metrics.emplace_back(metric, *perfMetric);
+    }
+    // Dump custom metrics
+    else if (metric == "guest-instructions") {
+      metrics.emplace_back(metric, hart.getIcount());
+    } else if (metric == "jit-threshold") {
+      metrics.emplace_back(metric, cfg.jitTranslationThreshold);
+    }
+  }
+
   return RunResult{.status = hart.getExitCode(),
-                   .guestIc = hart.getIcount(),
-                   .perfRes = eventCounter.result()};
+                   .metrics = {std::move(metrics)}};
 }
 
 } // namespace
 
 int main(int argc, const char *argv[]) try {
-  std::filesystem::path elfPath;
-  constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
-  prot::isa::Addr stackTop{};
-  std::string jitBackend{};
+  constexpr prot::isa::Addr kDefaultStack = 0x7fff'ffff;
+  constexpr size_t kDefaultJitThreshold = 1'000;
+
+  RunConfig cfg{};
   std::filesystem::path statsCsvPath;
-  bool dumpHart = false;
 
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
 
-    app.add_option("elf", elfPath, "Path to executable ELF file")
+    app.add_option("elf", cfg.elfPath, "Path to executable ELF file")
         ->required()
         ->check(CLI::ExistingFile);
 
-    app.add_option("--stack-top", stackTop, "Address of the stack top")
+    app.add_option("--stack-top", cfg.stackTop, "Address of the stack top")
         ->default_val(kDefaultStack)
         ->default_str(fmt::format("{:#x}", kDefaultStack));
 
-    app.add_option("--jit", jitBackend, "Use JIT & set backend")
+    app.add_option("--jit", cfg.jitBackend, "Use JIT & set backend")
         ->check(CLI::IsMember(prot::engine::JitFactory::backends()));
+
+    app.add_option("--jit-threshold", cfg.jitTranslationThreshold,
+                   "Execution count threshold for code to be JIT-ed")
+        ->default_val(kDefaultJitThreshold);
 
     app.add_option(
         "--stats", statsCsvPath,
         "Path to CSV stats file. Enables stats collection regime if set");
 
-    app.add_flag("--dump", dumpHart, "Dump hart values on each run");
+    app.add_flag("--dump", cfg.dumpHart, "Dump hart values on each run");
 
     CLI11_PARSE(app, argc, argv);
   }
 
   bool collectStats = !statsCsvPath.empty();
 
-  // Group related counters together
-  // clang-format off
-  std::vector<std::vector<std::string>> counters {
-    {
-      "seconds",
-      "instructions",
-      "cycles",
-      "branches",
-      "branch-misses",
-    },
-    {
-      "L1-dcache-loads",
-      "L1-dcache-load-misses",
-      "L1-icache-loads",
-      "L1-icache-load-misses",
-      "iTLB-load-misses",
-      "dTLB-load-misses",
-    },
-  };
-  // clang-format on
+  // Group related metrics together
+  std::vector<std::vector<std::string>> metrics{
+      // First group of metrics is always collected
+      {
+          // Config info
+          "jit-threshold",
+          // Guest metrics
+          "guest-instructions",
+          // Perf metrics
+          "seconds",
+          "instructions",
+          "cycles",
+          "branches",
+          "branch-misses",
+      },
+      // Cache-related metrics (1)
+      {
+          "L1-dcache-loads",
+          "L1-dcache-load-misses",
+          "L1-icache-loads",
+          "L1-icache-load-misses",
+      },
+      // Cache-related metrics (2)
+      {
+          "iTLB-load-misses",
+          "dTLB-load-misses",
+      }};
 
   std::ofstream statsCsv{};
   if (collectStats) {
@@ -136,39 +203,31 @@ int main(int argc, const char *argv[]) try {
     statsCsv.open(statsCsvPath, std::ios_base::app | std::ios_base::out);
 
     if (addHeader) {
-      fmt::println(statsCsv, "{}", fmt::join(counters | std::views::join, ","));
+      fmt::println(statsCsv, "{}", fmt::join(metrics | std::views::join, ","));
     }
   }
 
   auto runNum = 0;
-  for (const auto &runCounters :
-       counters | std::views::take(collectStats ? 0xffU : 1U)) {
-    fmt::println("Run #{}", runNum++);
+  for (const auto &runMetrics :
+       metrics | std::views::take(collectStats ? 0xffU : 1U)) {
+    fmt::println("Run #{}", runNum);
 
-    auto res = run({
-        .elfPath = elfPath,
-        .stackTop = stackTop,
-        .jitBackend = jitBackend,
-        .perfEvents = runCounters,
-        .dumpHart = dumpHart,
-    });
+    auto runCfg = cfg;
+    runCfg.metrics = runMetrics;
+    auto res = run(runCfg);
 
-    auto seconds = res.perfRes["seconds"];
-    auto cycles = res.perfRes["cycles"];
-    auto hostInstrs = res.perfRes["instructions"];
+    if (runNum == 0) {
+      auto seconds = res.metrics["seconds"].value();
+      auto guestInstrs = res.metrics["guest-instructions"].value();
 
-    if (seconds) {
-      fmt::println("  time: {:.2f}s", *seconds);
-    }
-
-    if (seconds && cycles && hostInstrs) {
-      auto guestIPS = res.guestIc / *seconds;
+      fmt::println("  time: {:.2f}s", seconds);
+      auto guestIPS = guestInstrs / seconds;
       fmt::println("  MIPS: {:.2f}", guestIPS / 1'000'000);
     }
 
     if (collectStats) {
       fmt::print(statsCsv, "{}",
-                 fmt::join(res.perfRes | std::views::values, ","));
+                 fmt::join(res.metrics.metrics | std::views::values, ","));
     }
 
     fmt::println("  status = {}", res.status);
@@ -176,6 +235,8 @@ int main(int argc, const char *argv[]) try {
       fmt::println("Run failed, aborting");
       return res.status;
     }
+
+    ++runNum;
   }
 
   if (collectStats) {
