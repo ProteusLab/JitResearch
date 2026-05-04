@@ -38,7 +38,8 @@ void JitEngine::step(CPUState &cpu) {
         }
         curAddr += isa::kWordSize;
       }
-    } else if (bbIt->second.num_exec >= kExecThreshold) [[likely]] {
+    }
+    if (bbIt->second.num_exec >= m_execThreshold) [[likely]] {
       auto code = translate(bbIt->second);
       m_tbCache.insert(pc, code);
       if (code != nullptr) [[likely]] {
@@ -60,7 +61,7 @@ void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
 
 auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
   if (const auto found = m_cacheBB.find(pc); found != m_cacheBB.end()) {
-    if (found->second.num_exec >= kExecThreshold) {
+    if (found->second.num_exec >= m_execThreshold) {
       return &found->second;
     }
   }

@@ -28,11 +28,20 @@ std::vector<std::string_view> JitFactory::backends() {
   return res;
 }
 
-std::unique_ptr<ExecEngine>
-JitFactory::createEngine(const std::string &backend) {
+std::unique_ptr<ExecEngine> JitFactory::createEngine(const std::string &backend,
+                                                     std::size_t execThres) {
   auto it = kFactories.find(backend);
-  if (it != kFactories.end())
-    return it->second();
+  if (it != kFactories.end()) {
+    auto engine = it->second();
+    auto *jitBase = dynamic_cast<JitEngine *>(engine.get());
+    if (jitBase == nullptr) {
+      throw std::invalid_argument{"Not a JIT engine"};
+    }
+
+    jitBase->setExecThres(execThres);
+
+    return engine;
+  }
 
   throw std::invalid_argument("Undefined JIT backend: " + backend);
 }

@@ -11,10 +11,9 @@
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
 class JitEngine : public Interpreter {
-  static constexpr std::size_t kExecThreshold = 10;
-
 public:
   void step(CPUState &cpu) override;
+  void setExecThres(std::size_t thres) { m_execThreshold = thres; }
 
 protected:
   struct TbCache {
@@ -63,6 +62,7 @@ private:
 private:
   [[nodiscard]] virtual JitFunction translate(const BBInfo &info) = 0;
 
+  std::size_t m_execThreshold{};
   TbCache m_tbCache;
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
 };
