@@ -18,6 +18,7 @@ int main(int argc, const char *argv[]) try {
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
   std::string jitBackend{};
+  std::size_t execThres{};
 
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
@@ -30,19 +31,29 @@ int main(int argc, const char *argv[]) try {
         ->default_val(kDefaultStack)
         ->default_str(fmt::format("{:#x}", kDefaultStack));
 
-    app.add_option("--jit", jitBackend, "Use JIT & set backend")
-        ->check(CLI::IsMember(prot::engine::JitFactory::backends()));
+    auto *jit =
+        app.add_option("--jit", jitBackend, "Use JIT & set backend")
+            ->check(CLI::IsMember(prot::engine::JitFactory::backends()));
+
+    app.add_option("--exec-threshold", execThres,
+                   "Specify amount of BB execs before translation starts")
+        ->default_val(10)
+        ->needs(jit)
+        ->capture_default_str();
 
     CLI11_PARSE(app, argc, argv);
   }
+  const bool jitEnabled = !jitBackend.empty();
 
   auto hart = [&] {
     prot::ElfLoader loader{elfPath};
 
-    std::unique_ptr<prot::ExecEngine> engine =
-        !jitBackend.empty() ? prot::engine::JitFactory::createEngine(jitBackend)
-                            : std::make_unique<prot::engine::Interpreter>();
-
+    auto engine = [&]() -> std::unique_ptr<prot::ExecEngine> {
+      if (jitEnabled) {
+        return prot::engine::JitFactory::createEngine(jitBackend, execThres);
+      }
+      return std::make_unique<prot::engine::Interpreter>();
+    }();
     prot::Hart hart{prot::memory::makePlain(4ULL << 30U), std::move(engine)};
     hart.load(loader);
     hart.setSP(stackTop);
@@ -57,7 +68,9 @@ int main(int argc, const char *argv[]) try {
   std::chrono::duration<double> duration = end - start;
   fmt::println("icount: {}", hart.getIcount());
   fmt::println("time: {}s", duration.count());
-  fmt::println("threshold: {}", 0);
+  if (jitEnabled) {
+    fmt::println("threshold: {}", execThres);
+  }
   fmt::println("mips: {}", hart.getIcount() / (duration.count() * 1000000));
   return hart.getExitCode();
 } catch (const std::exception &ex) {
