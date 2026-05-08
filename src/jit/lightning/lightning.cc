@@ -140,10 +140,11 @@ JitFunction Lightning::translate(const BBInfo &info) {
       PROT_MAKE_IMPL_SIMPLE(AND, and)
       PROT_MAKE_IMPL_SIMPLE(OR, or)
       PROT_MAKE_IMPL_SIMPLE(XOR, xor)
-      PROT_MAKE_IMPL_SIMPLE(SLL, lsh)
+
     case kSRA:
       loadRS1(0, true);
       loadRS2(1);
+      jit_andi(JIT_R1, JIT_R1, 0x1f);
       jit_rshr(JIT_R0, JIT_R0, JIT_R1);
       storeRd(0);
       break;
@@ -153,10 +154,26 @@ JitFunction Lightning::translate(const BBInfo &info) {
       storeRd(0);
       break;
 
+#define PROT_MAKE_SHIFT_IMPL(OP, op1, op2)                                     \
+  case k##OP:                                                                  \
+    loadRS1(0);                                                                \
+    loadRS2(1);                                                                \
+    jit_andi(JIT_R1, JIT_R1, 0x1f);                                            \
+    jit_##op1(JIT_R0, JIT_R0, JIT_R1);                                         \
+    storeRd(0);                                                                \
+    break;                                                                     \
+  case k##OP##I:                                                               \
+    loadRS1(0);                                                                \
+    jit_##op2(JIT_R0, JIT_R0, insn.imm());                                     \
+    storeRd(0);                                                                \
+    break;
+
 #undef PROT_MAKE_IMPL_SIMPLE
 
-      PROT_MAKE_IMPL(SRL, rshr_u, rshi_u)
+      PROT_MAKE_SHIFT_IMPL(SRL, rshr_u, rshi_u)
+      PROT_MAKE_SHIFT_IMPL(SLL, lshr, lshi)
 
+#undef PROT_MAKE_SHIFT_IMPL
 #undef PROT_MAKE_IMPL
     case kAUIPC:
       loadPC(0);
