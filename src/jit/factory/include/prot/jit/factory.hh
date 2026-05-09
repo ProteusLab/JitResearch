@@ -2,6 +2,7 @@
 #define INCLUDE_PROT_JIT_FACTORY_HH_INCLUDED
 
 #include "prot/exec_engine.hh"
+#include "prot/jit/base.hh"
 
 #include <functional>
 #include <string>
@@ -14,8 +15,8 @@ namespace prot::engine {
 class JitFactory {
 public:
   [[nodiscard]] static std::vector<std::string_view> backends();
-  static std::unique_ptr<ExecEngine> createEngine(const std::string &backend,
-                                                  std::size_t execThres);
+  static std::unique_ptr<ExecEngine>
+  createEngine(const std::string &backend, const JitEngine::Config &config);
   static bool exist(const std::string &backend);
 
 private:
