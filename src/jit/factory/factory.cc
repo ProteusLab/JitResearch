@@ -30,8 +30,9 @@ std::vector<std::string_view> JitFactory::backends() {
   return res;
 }
 
-std::unique_ptr<ExecEngine> JitFactory::createEngine(const std::string &backend,
-                                                     std::size_t execThres) {
+std::unique_ptr<ExecEngine>
+JitFactory::createEngine(const std::string &backend,
+                         const JitEngine::Config &config) {
   auto it = kFactories.find(backend);
   if (it != kFactories.end()) {
     auto engine = it->second();
@@ -40,7 +41,7 @@ std::unique_ptr<ExecEngine> JitFactory::createEngine(const std::string &backend,
       throw std::invalid_argument{"Not a JIT engine"};
     }
 
-    jitBase->setExecThres(execThres);
+    jitBase->setConfig(config);
 
     return engine;
   }

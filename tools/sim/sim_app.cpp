@@ -18,7 +18,7 @@ int main(int argc, const char *argv[]) try {
   constexpr prot::isa::Addr kDefaultStack = 0x7fffffff;
   prot::isa::Addr stackTop{};
   std::string jitBackend{};
-  std::size_t execThres{};
+  prot::engine::JitEngine::Config jitConfig{};
 
   {
     CLI::App app{"App for JIT research from ProteusLab team"};
@@ -34,12 +34,18 @@ int main(int argc, const char *argv[]) try {
     auto *jit =
         app.add_option("--jit", jitBackend, "Use JIT & set backend")
             ->check(CLI::IsMember(prot::engine::JitFactory::backends()));
+    auto *jitOpts = app.add_option_group("JIT options")->needs(jit);
 
-    app.add_option("--exec-threshold", execThres,
-                   "Specify amount of BB execs before translation starts")
+    jitOpts->add_flag("--single-step", jitConfig.singleStep,
+                      "Set single step (by instruction) JIT-simulation mode");
+    jitOpts
+        ->add_option("--exec-threshold", jitConfig.execThreshold,
+                     "Specify amount of BB execs before translation starts")
         ->default_val(10)
-        ->needs(jit)
         ->capture_default_str();
+
+    jitOpts->add_flag("--dump-cpu", jitConfig.enableDump,
+                      "Enable dump of CPU state before each TB");
 
     CLI11_PARSE(app, argc, argv);
   }
@@ -50,11 +56,12 @@ int main(int argc, const char *argv[]) try {
 
     auto engine = [&]() -> std::unique_ptr<prot::ExecEngine> {
       if (jitEnabled) {
-        return prot::engine::JitFactory::createEngine(jitBackend, execThres);
+        return prot::engine::JitFactory::createEngine(jitBackend, jitConfig);
       }
       return std::make_unique<prot::engine::Interpreter>();
     }();
-    prot::Hart hart{prot::memory::makePlain(4ULL << 30U), std::move(engine)};
+    auto mem = prot::memory::makePlain(4ULL << 30U);
+    prot::Hart hart{std::move(mem), std::move(engine)};
     hart.load(loader);
     hart.setSP(stackTop);
 
@@ -69,7 +76,7 @@ int main(int argc, const char *argv[]) try {
   fmt::println("icount: {}", hart.getIcount());
   fmt::println("time: {}s", duration.count());
   if (jitEnabled) {
-    fmt::println("threshold: {}", execThres);
+    fmt::println("threshold: {}", jitConfig.execThreshold);
   }
   fmt::println("mips: {}", hart.getIcount() / (duration.count() * 1000000));
   return hart.getExitCode();

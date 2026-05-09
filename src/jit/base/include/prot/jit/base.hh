@@ -3,17 +3,23 @@
 
 #include "prot/interpreter.hh"
 
-#include <functional>
-#include <map>
 #include <unordered_map>
 #include <vector>
 
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
+
 class JitEngine : public Interpreter {
 public:
+  struct Config final {
+    std::size_t execThreshold{};
+    bool singleStep{false};
+    bool enableDump{false};
+  };
+
   void step(CPUState &cpu) override;
-  void setExecThres(std::size_t thres) { m_execThreshold = thres; }
+
+  void setConfig(const Config &config) { m_config = config; }
 
 protected:
   struct TbCache {
@@ -62,7 +68,7 @@ private:
 private:
   [[nodiscard]] virtual JitFunction translate(const BBInfo &info) = 0;
 
-  std::size_t m_execThreshold{};
+  Config m_config{};
   TbCache m_tbCache;
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
 };

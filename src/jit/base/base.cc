@@ -13,6 +13,10 @@ extern "C" {
 namespace prot::engine {
 void JitEngine::step(CPUState &cpu) {
   while (!cpu.finished) [[likely]] {
+    if (m_config.enableDump) {
+      cpu.dump(std::cout);
+    }
+
     // colllect bb
     const auto pc = cpu.getPC();
     auto found = m_tbCache.lookup(pc);
@@ -35,13 +39,14 @@ void JitEngine::step(CPUState &cpu) {
         }
 
         bb.insns.push_back(*inst);
-        if (isa::isTerminator(inst->opcode())) {
+
+        if (m_config.singleStep || isa::isTerminator(inst->opcode())) {
           break;
         }
         curAddr += isa::kWordSize;
       }
     }
-    if (bbIt->second.num_exec >= m_execThreshold) [[likely]] {
+    if (bbIt->second.num_exec >= m_config.execThreshold) [[likely]] {
       auto code = translate(bbIt->second);
       m_tbCache.insert(pc, code);
       if (code != nullptr) [[likely]] {
@@ -63,7 +68,7 @@ void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
 
 auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
   if (const auto found = m_cacheBB.find(pc); found != m_cacheBB.end()) {
-    if (found->second.num_exec >= m_execThreshold) {
+    if (found->second.num_exec >= m_config.execThreshold) {
       return &found->second;
     }
   }
