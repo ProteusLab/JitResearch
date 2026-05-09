@@ -105,6 +105,16 @@
     invoke->setArg(0, state_ptr);                                              \
     invoke->setArg(1, rs1);                                                    \
     invoke->setRet(0, rd);                                                     \
+    switch (insn.opcode()) {                                                   \
+    case kLB:                                                                  \
+      cc.movsx(rd, rd.r8());                                                   \
+      break;                                                                   \
+    case kLH:                                                                  \
+      cc.movsx(rd, rd.r16());                                                  \
+      break;                                                                   \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
     setDst(insn.rd(), rd);                                                     \
     break;                                                                     \
   }
