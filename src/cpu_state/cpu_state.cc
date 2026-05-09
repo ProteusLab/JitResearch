@@ -4,6 +4,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
+#include <fmt/ranges.h>
 
 namespace prot {
 
@@ -12,27 +13,30 @@ enum class NumSysCall : isa::Word {
 };
 
 void CPUState::dump(std::ostream &ost) const {
-  fmt::println(ost, "---CPU STATE DUMP---");
-  fmt::println(ost, "Icount = {}", icount);
-  fmt::println(ost, "PC = {:#x}", pc);
+  static constexpr auto kAbiRegs = std::to_array<std::string_view>(
+      {"zero", "ra", "sp", "gp", "tp",  "t0",  "t1", "t2", "s0", "s1", "a0",
+       "a1",   "a2", "a3", "a4", "a5",  "a6",  "a7", "s2", "s3", "s4", "s5",
+       "s6",   "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"});
 
-  static constexpr std::size_t kRegPerRow = 5;
-  static constexpr std::size_t kNumRows =
-      (kNumRegs + kRegPerRow - 1) / kRegPerRow;
-  static_assert(kNumRows * kRegPerRow >= kNumRegs);
+  static constexpr std::size_t kRegNameSpace =
+      std::ranges::max(kAbiRegs | std::views::transform(std::ranges::size)) +
+      5; // 4 for xXX/ + 1 for space
 
-  for (auto i : std::views::iota(0U, kNumRows)) {
-    for (auto j : std::views::iota(0U, kRegPerRow)) {
-      const auto effIdx = (i * kRegPerRow) + j;
-      if (effIdx >= regs.size()) {
-        break;
-      }
-      fmt::print(ost, "X[{:02}] = {:#010x} ", effIdx, regs[effIdx]);
-    }
-    ost << "\n";
+  fmt::println(ost, " {:<{}}{:08x}", "pc", kRegNameSpace, pc);
+  static constexpr std::size_t kRegsByRow = 4;
+  static_assert(kNumRegs % kRegsByRow == 0);
+
+  for (std::size_t i = 0; i < regs.size(); i += 4) {
+    auto regDumps =
+        std::views::iota(0U, kRegsByRow) |
+        std::views::transform([i](auto j) { return i + j; }) |
+        std::views::transform([&](auto idx) {
+          auto name = fmt::format("x{}/{}", idx, kAbiRegs[idx]);
+          return fmt::format("{:<{}}{:08x}", name, kRegNameSpace, regs.at(idx));
+        });
+
+    fmt::println(ost, " {}", fmt::join(regDumps, " "));
   }
-
-  fmt::println(ost, "---CPU STATE DUMP END---");
 }
 
 void CPUState::doExit(isa::Word code) {
