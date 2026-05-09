@@ -280,9 +280,6 @@ void AUIPCbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   if (rd != 0) {
     Data.CreateStore(Data.CreateAdd(Data.getInt32(imm), pcVal), rdPtr);
   }
-
-  llvm::Value *newPCVal = Data.CreateAdd(pcVal, Data.getInt32(4));
-  Data.CreateStore(newPCVal, pcPtr);
 }
 
 void JALbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
