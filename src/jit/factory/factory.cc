@@ -5,11 +5,11 @@
 
 #include "prot/jit/asmjit.hh"
 #include "prot/jit/base.hh"
+#include "prot/jit/ir.hh"
 #include "prot/jit/lightning.hh"
 #include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/mir.hh"
 #include "prot/jit/tpde.hh"
-#include "prot/jit/ir.hh"
 #include "prot/jit/xbyak.hh"
 
 namespace prot::engine {
