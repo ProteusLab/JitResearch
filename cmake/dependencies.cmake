@@ -83,3 +83,13 @@ CPMAddPackage(
 set(BUILD_TESTING
     ${BUILD_TESTING_SAVE}
     CACHE BOOL "" FORCE)
+
+# ir
+CPMAddPackage(
+  NAME ir
+  GITHUB_REPOSITORY dstogov/ir
+  GIT_TAG e9ae5bd2927c3b15dc45de8736aef4b54cc604e0
+  EXCLUDE_FROM_ALL True
+  SYSTEM True
+  DOWNLOAD_ONLY True
+)

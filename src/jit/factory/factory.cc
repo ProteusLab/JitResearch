@@ -5,6 +5,7 @@
 
 #include "prot/jit/asmjit.hh"
 #include "prot/jit/base.hh"
+#include "prot/jit/ir.hh"
 #include "prot/jit/lightning.hh"
 #include "prot/jit/llvmbasedjit.hh"
 #include "prot/jit/mir.hh"
@@ -21,7 +22,8 @@ const std::unordered_map<std::string_view,
         {"llvm", []() { return makeLLVMBasedJIT(); }},
         {"lightning", []() { return makeLightning(); }},
         {"mir", []() { return makeMirJit(); }},
-        {"tpde", []() { return makeTPDE(); }}};
+        {"tpde", []() { return makeTPDE(); }},
+        {"ir", []() { return makeIrJit(); }}};
 
 std::vector<std::string_view> JitFactory::backends() {
   std::vector<std::string_view> res(kFactories.size());

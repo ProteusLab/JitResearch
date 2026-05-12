@@ -9,7 +9,8 @@ target_link_libraries(
           PROT::JIT::llvmbased
           PROT::JIT::lightning
           PROT::JIT::mir
-          PROT::JIT::tpde)
+          PROT::JIT::tpde
+          PROT::JIT::ir)
 
 target_include_directories(prot_jit_factory PUBLIC include)
 
