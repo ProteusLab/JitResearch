@@ -36,8 +36,8 @@ void JitEngine::step(CPUState &cpu) {
         auto bytes = cpu.memory->read<isa::Word>(curAddr);
         auto inst = isa::Instruction::decode(bytes);
         if (!inst.has_value()) {
-          throw std::runtime_error{
-              fmt::format("Cannot decode bytes: {:#x}", bytes)};
+          throw std::runtime_error{fmt::format(
+              "Cannot decode bytes: {:#x} on pc: {:#x}", bytes, curAddr)};
         }
 
         bb.insns.push_back(*inst);
@@ -58,6 +58,7 @@ void JitEngine::step(CPUState &cpu) {
 
       code(cpu);
       m_tbCache.insert(pc, code);
+      continue;
     }
 
     interpret(cpu, bbIt->second);
