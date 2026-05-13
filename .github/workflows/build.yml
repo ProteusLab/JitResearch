@@ -57,6 +57,10 @@ jobs:
         if: ${{ matrix.generator == 'Ninja' }}
         run: sudo apt install ninja-build
 
+      - name: Install Capstone
+        if: ${{ matrix.generator == 'Ninja' }}
+        run: sudo apt install libcapstone-dev
+
       - name: Install Clang 21
         if: ${{ matrix.compiler == 'clang++-21' }}
         run: |
