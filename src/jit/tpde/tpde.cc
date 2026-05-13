@@ -19,7 +19,7 @@ namespace prot::engine {
 
 namespace {
 
-class TPDEJit final : public JitEngine {
+class TPDEJit final : public Translator {
 public:
   TPDEJit()
       : m_jit([] {
@@ -56,5 +56,5 @@ private:
 };
 } // namespace
 
-std::unique_ptr<ExecEngine> makeTPDE() { return std::make_unique<TPDEJit>(); }
+std::unique_ptr<Translator> makeTPDE() { return std::make_unique<TPDEJit>(); }
 } // namespace prot::engine

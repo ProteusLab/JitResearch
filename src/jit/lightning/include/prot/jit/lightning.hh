@@ -3,10 +3,10 @@
 
 #include <memory>
 
-#include "prot/exec_engine.hh"
+#include "prot/jit/base.hh"
 
 namespace prot::engine {
-std::unique_ptr<ExecEngine> makeLightning();
+std::unique_ptr<Translator> makeLightning();
 }
 
 #endif // INCLUDE_PROT_JIT_LIGHTNING_HH_INCLUDED

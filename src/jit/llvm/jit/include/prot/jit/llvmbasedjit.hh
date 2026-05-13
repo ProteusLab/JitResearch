@@ -4,10 +4,10 @@
 #include <llvm/Support/Error.h>
 #include <memory>
 
-#include "prot/exec_engine.hh"
+#include "prot/jit/base.hh"
 
 namespace prot::engine {
-std::unique_ptr<ExecEngine> makeLLVMBasedJIT();
+std::unique_ptr<Translator> makeLLVMBasedJIT();
 } // end namespace prot::engine
 
 #endif // PROT_JIT_LLVMBASEDJIT_HH_INCLUDED

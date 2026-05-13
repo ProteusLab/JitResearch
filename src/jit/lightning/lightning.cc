@@ -15,7 +15,7 @@ extern "C" {
 namespace prot::engine {
 
 namespace {
-struct Lightning : public JitEngine {
+struct Lightning : public Translator {
   Lightning() { init_jit("JIT Research"); }
 
   [[nodiscard]] JitFunction translate(const BBInfo &info) override;
@@ -333,7 +333,7 @@ JitFunction Lightning::translate(const BBInfo &info) {
 }
 } // namespace
 
-std::unique_ptr<ExecEngine> makeLightning() {
+std::unique_ptr<Translator> makeLightning() {
   return std::make_unique<Lightning>();
 }
 } // namespace prot::engine

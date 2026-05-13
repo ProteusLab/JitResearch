@@ -124,7 +124,7 @@ namespace {
 
 using JitFunction = void (*)(CPUState &);
 
-class AsmJit : public JitEngine {
+class AsmJit : public Translator {
 public:
   AsmJit() = default;
 
@@ -297,5 +297,5 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 }
 } // namespace
 
-std::unique_ptr<ExecEngine> makeAsmJit() { return std::make_unique<AsmJit>(); }
+std::unique_ptr<Translator> makeAsmJit() { return std::make_unique<AsmJit>(); }
 } // namespace prot::engine

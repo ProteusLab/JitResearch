@@ -9,7 +9,22 @@
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
 
-class JitEngine : public Interpreter {
+// simple bb counting
+struct BBInfo final {
+  std::vector<isa::Instruction> insns;
+  std::size_t num_exec{};
+};
+
+struct Translator {
+  Translator() = default;
+  Translator(const Translator &) = delete;
+  Translator &operator=(const Translator &) = delete;
+
+  [[nodiscard]] virtual JitFunction translate(const BBInfo &info) = 0;
+  virtual ~Translator() = default;
+};
+
+class JitEngine final : public Interpreter {
 public:
   struct Config final {
     std::size_t execThreshold{};
@@ -17,9 +32,10 @@ public:
     bool enableDump{false};
   };
 
-  void step(CPUState &cpu) override;
+  JitEngine(const Config &config, std::unique_ptr<Translator> translator)
+      : m_config{config}, m_translator{std::move(translator)} {}
 
-  void setConfig(const Config &config) { m_config = config; }
+  void step(CPUState &cpu) override;
 
 protected:
   struct TbCache {
@@ -52,11 +68,6 @@ protected:
     std::array<Entry, kSize> m_cache;
   };
 
-  // simple bb counting
-  struct BBInfo final {
-    std::vector<isa::Instruction> insns;
-    std::size_t num_exec{};
-  };
   [[nodiscard]] const BBInfo *getBBInfo(isa::Addr pc) const;
 
 private:
@@ -66,17 +77,10 @@ private:
   }
 
 private:
-  [[nodiscard]] virtual JitFunction translate(const BBInfo &info) = 0;
-
   Config m_config{};
   TbCache m_tbCache;
+  std::unique_ptr<Translator> m_translator;
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
-};
-
-class CachedInterpreter final : public JitEngine {
-  JitFunction translate(const BBInfo & /* unused */) override {
-    return nullptr;
-  }
 };
 
 // Helper class to store JITed code
