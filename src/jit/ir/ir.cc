@@ -107,7 +107,7 @@ template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
 }
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
-class IRJit : public JitEngine {
+class IRJit : public Translator {
 public:
   static constexpr std::size_t kOptLevel = 2;
   static constexpr std::size_t kConstsLimit = 1024;
@@ -308,5 +308,5 @@ JitFunction IRJit::translate(const BBInfo &info) {
 
 } // namespace
 
-std::unique_ptr<ExecEngine> makeIrJit() { return std::make_unique<IRJit>(); }
+std::unique_ptr<Translator> makeIrJit() { return std::make_unique<IRJit>(); }
 } // namespace prot::engine

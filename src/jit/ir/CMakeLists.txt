@@ -1,23 +1,38 @@
-add_custom_command(
-  OUTPUT ${ir_SOURCE_DIR}/libir.a
-  COMMAND ${CMAKE_MAKE_PROGRAM} CC=${CMAKE_C_COMPILER} -C ${ir_SOURCE_DIR} -f Makefile
-  COMMENT "Building IR library using Makefile"
+find_program(MAKE_EXECUTABLE NAMES make REQUIRED)
+
+set(IR_INSTALL_DIR ${ir_BINARY_DIR})
+set(IR_LIBRARY
+    "${IR_INSTALL_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}ir${CMAKE_STATIC_LIBRARY_SUFFIX}"
 )
 
-add_custom_target(ir_lib DEPENDS ${ir_SOURCE_DIR}/libir.a)
+ExternalProject_Add(
+  ir_makefile_build
+  SOURCE_DIR ${ir_SOURCE_DIR}
+  UPDATE_DISCONNECTED TRUE # Do not check git updates
+  BUILD_IN_SOURCE 1
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ${MAKE_EXECUTABLE} CC=${CMAKE_C_COMPILER} -j
+  INSTALL_COMMAND ${MAKE_EXECUTABLE} PREFIX=${IR_INSTALL_DIR} install
+  LOG_CONFIGURE False
+  LOG_BUILD True
+  LOG_MERGED_STDOUTERR False
+  LOG_OUTPUT_ON_FAILURE True
+  BUILD_BYPRODUCTS ${IR_LIBRARY})
 
-add_library(ir_ext STATIC IMPORTED)
-set_target_properties(ir_ext PROPERTIES
-  IMPORTED_LOCATION ${ir_SOURCE_DIR}/libir.a
-  INTERFACE_INCLUDE_DIRECTORIES "${ir_SOURCE_DIR}"
-)
-add_dependencies(ir_ext ir_lib)
+set(IR_INCLUDE_DIR "${IR_INSTALL_DIR}/include")
+make_directory(${IR_INCLUDE_DIR})
+
+add_library(ir_iface INTERFACE)
+target_include_directories(ir_iface INTERFACE SYSTEM ${IR_INCLUDE_DIR})
+target_link_libraries(ir_iface INTERFACE ${IR_LIBRARY})
+add_dependencies(ir_iface ir_makefile_build)
+set_target_properties(ir_iface PROPERTIES EXCLUDE_FROM_ALL True)
 
 add_library(prot_jit_ir STATIC ir.cc)
-target_link_libraries(prot_jit_ir
+target_link_libraries(
+  prot_jit_ir
   PUBLIC PROT::isa PROT::exec_engine
-  PRIVATE PROT::defaults ir_ext PROT::JIT::base
-)
+  PRIVATE PROT::defaults ir_iface PROT::JIT::base)
 target_include_directories(prot_jit_ir PUBLIC include)
 
 add_library(PROT::JIT::ir ALIAS prot_jit_ir)
