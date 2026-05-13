@@ -2,7 +2,6 @@
 #define INCLUDE_JIT_BASE_HH_INCLUDED
 
 #include "prot/interpreter.hh"
-
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +50,8 @@ public:
 
   void step(CPUState &cpu) override;
 
+  ~JitEngine() override;
+
 protected:
   struct TbCache {
     static constexpr std::uint64_t kInvalidAddr{0};
@@ -90,6 +91,8 @@ private:
   }
 
 private:
+  std::uintmax_t m_execTicks{};
+  std::uintmax_t m_transTicks{};
   Config m_config{};
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;
