@@ -2,7 +2,6 @@
 #define INCLUDE_JIT_BASE_HH_INCLUDED
 
 #include "prot/interpreter.hh"
-
 #include <unordered_map>
 #include <vector>
 
@@ -36,6 +35,8 @@ public:
       : m_config{config}, m_translator{std::move(translator)} {}
 
   void step(CPUState &cpu) override;
+
+  ~JitEngine() override;
 
 protected:
   struct TbCache {
@@ -77,6 +78,8 @@ private:
   }
 
 private:
+  std::uintmax_t m_execTicks{};
+  std::uintmax_t m_transTicks{};
   Config m_config{};
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;
