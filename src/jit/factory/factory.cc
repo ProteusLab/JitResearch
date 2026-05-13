@@ -13,12 +13,11 @@
 
 namespace prot::engine {
 const std::unordered_map<std::string_view,
-                         std::function<std::unique_ptr<ExecEngine>()>>
+                         std::function<std::unique_ptr<Translator>()>>
     JitFactory::kFactories = {
         {"xbyak", []() { return makeXbyak(); }},
         {"asmjit", []() { return makeAsmJit(); }},
-        {"cached-interp",
-         []() { return std::make_unique<CachedInterpreter>(); }},
+        {"cached-interp", []() { return std::unique_ptr<Translator>(); }},
         {"llvm", []() { return makeLLVMBasedJIT(); }},
         {"lightning", []() { return makeLightning(); }},
         {"mir", []() { return makeMirJit(); }},
@@ -30,20 +29,10 @@ std::vector<std::string_view> JitFactory::backends() {
   return res;
 }
 
-std::unique_ptr<ExecEngine>
-JitFactory::createEngine(const std::string &backend,
-                         const JitEngine::Config &config) {
-  auto it = kFactories.find(backend);
-  if (it != kFactories.end()) {
-    auto engine = it->second();
-    auto *jitBase = dynamic_cast<JitEngine *>(engine.get());
-    if (jitBase == nullptr) {
-      throw std::invalid_argument{"Not a JIT engine"};
-    }
-
-    jitBase->setConfig(config);
-
-    return engine;
+std::unique_ptr<Translator>
+JitFactory::createTranslator(const std::string &backend) {
+  if (const auto it = kFactories.find(backend); it != kFactories.end()) {
+    return it->second();
   }
 
   throw std::invalid_argument("Undefined JIT backend: " + backend);

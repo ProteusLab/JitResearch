@@ -142,7 +142,7 @@ template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
 
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
-class MIRJit : public JitEngine {
+class MIRJit : public Translator {
 public:
   MIRJit() : ctx(MIR_init()) {
     MIR_gen_init(ctx);
@@ -395,5 +395,5 @@ JitFunction MIRJit::translate(const BBInfo &info) {
 
 } // namespace
 
-std::unique_ptr<ExecEngine> makeMirJit() { return std::make_unique<MIRJit>(); }
+std::unique_ptr<Translator> makeMirJit() { return std::make_unique<MIRJit>(); }
 } // namespace prot::engine

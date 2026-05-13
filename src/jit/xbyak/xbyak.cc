@@ -14,7 +14,7 @@
 
 namespace prot::engine {
 namespace {
-class XByakJit : public JitEngine, private Xbyak::CodeGenerator {
+class XByakJit : public Translator, private Xbyak::CodeGenerator {
 public:
   XByakJit()
       : Xbyak::CodeGenerator{Xbyak::DEFAULT_MAX_CODE_SIZE, Xbyak::AutoGrow} {}
@@ -289,5 +289,5 @@ JitFunction XByakJit::translate(const BBInfo &info) {
 } // namespace
 } // namespace
 
-std::unique_ptr<ExecEngine> makeXbyak() { return std::make_unique<XByakJit>(); }
+std::unique_ptr<Translator> makeXbyak() { return std::make_unique<XByakJit>(); }
 } // namespace prot::engine

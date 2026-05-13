@@ -37,11 +37,9 @@
 
 namespace prot::engine {
 namespace {
-class LLVMBasedJIT : public JitEngine {
+class LLVMBasedJIT : public Translator {
   std::unique_ptr<llvm::orc::LLJIT> m_jit;
   std::size_t m_moduleId{};
-
-  using TBFunc = void (*)(CPUState &);
 
 public:
   LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT);
@@ -97,7 +95,7 @@ LLVMBasedJIT::LLVMBasedJIT(std::unique_ptr<llvm::orc::LLJIT> JIT)
 
 } // namespace
 
-std::unique_ptr<ExecEngine> makeLLVMBasedJIT() {
+std::unique_ptr<Translator> makeLLVMBasedJIT() {
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmPrinter();
   LLVMInitializeNativeAsmParser();

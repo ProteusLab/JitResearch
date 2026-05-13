@@ -3,10 +3,10 @@
 
 #include <memory>
 
-#include "prot/exec_engine.hh"
+#include "prot/jit/base.hh"
 
 namespace prot::engine {
-std::unique_ptr<ExecEngine> makeTPDE();
+std::unique_ptr<Translator> makeTPDE();
 }
 
 #endif // PROT_JIT_TPDE_HH_INCLUDED

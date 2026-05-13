@@ -56,7 +56,8 @@ int main(int argc, const char *argv[]) try {
 
     auto engine = [&]() -> std::unique_ptr<prot::ExecEngine> {
       if (jitEnabled) {
-        return prot::engine::JitFactory::createEngine(jitBackend, jitConfig);
+        return std::make_unique<prot::engine::JitEngine>(
+            jitConfig, prot::engine::JitFactory::createTranslator(jitBackend));
       }
       return std::make_unique<prot::engine::Interpreter>();
     }();

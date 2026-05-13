@@ -19,10 +19,12 @@ void JitEngine::step(CPUState &cpu) {
 
     // colllect bb
     const auto pc = cpu.getPC();
-    auto found = m_tbCache.lookup(pc);
-    if (found != nullptr) [[likely]] {
-      found(cpu);
-      continue;
+    if (m_translator) {
+      if (const auto found = m_tbCache.lookup(pc); found != nullptr)
+          [[likely]] {
+        found(cpu);
+        continue;
+      }
     }
 
     auto [bbIt, wasNew] = m_cacheBB.try_emplace(pc);
@@ -46,13 +48,16 @@ void JitEngine::step(CPUState &cpu) {
         curAddr += isa::kWordSize;
       }
     }
-    if (bbIt->second.num_exec >= m_config.execThreshold) [[likely]] {
-      auto code = translate(bbIt->second);
-      m_tbCache.insert(pc, code);
-      if (code != nullptr) [[likely]] {
-        code(cpu);
-        continue;
+    if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
+        [[likely]] {
+      auto code = m_translator->translate(bbIt->second);
+      if (code == nullptr) [[unlikely]] {
+        throw std::runtime_error{
+            fmt::format("Failed to translate BB on pc: {:#x}", pc)};
       }
+
+      code(cpu);
+      m_tbCache.insert(pc, code);
     }
 
     interpret(cpu, bbIt->second);

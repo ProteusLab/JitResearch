@@ -3,10 +3,10 @@
 
 #include <memory>
 
-#include "prot/exec_engine.hh"
+#include "prot/jit/base.hh"
 
 namespace prot::engine {
-std::unique_ptr<ExecEngine> makeAsmJit();
+std::unique_ptr<Translator> makeAsmJit();
 }
 
 #endif // PROT_JIT_ASMJIT_HH_INCLUDED
