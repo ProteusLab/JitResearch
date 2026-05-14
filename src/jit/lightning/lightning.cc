@@ -105,6 +105,10 @@ JitFunction Lightning::translate(const BBInfo &info) {
     assert(reg < JIT_R_NUM);
     jit_ldxi_ui(JIT_R(reg), JIT_V0, offsetof(CPUState, pc));
   };
+  auto loadMemBase = [&](int reg) {
+    assert(reg < JIT_R_NUM);
+    jit_ldxi_l(JIT_R(reg), JIT_V0, offsetof(CPUState, mem_base));
+  };
   auto storePC = [&](int reg) {
     assert(reg < JIT_R_NUM);
     jit_stxi_i(offsetof(CPUState, pc), JIT_V0, JIT_R(reg));
@@ -233,44 +237,36 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kPAUSE:
       break;
 
-#define PROT_MAKE_IMPL(OP, type, sext)                                         \
+#define PROT_MAKE_IMPL(OP, GNU_TYPE)                                           \
   case k##OP:                                                                  \
     loadRS1(0);                                                                \
     jit_addi(JIT_R0, JIT_R0, insn.imm());                                      \
-    jit_prepare();                                                             \
-    jit_pushargr(JIT_V0);                                                      \
-    jit_pushargr(JIT_R0);                                                      \
-                                                                               \
-    jit_finishi(reinterpret_cast<void *>(&loadHelper<isa::type>));             \
-    jit_retval(JIT_R0);                                                        \
-    if (sext) {                                                                \
-      jit_extr(JIT_R0, JIT_R0, 0, sizeofBits<isa::type>());                    \
-    }                                                                          \
+    loadMemBase(1);                                                            \
+    jit_andi(JIT_R0, JIT_R0, ~std::uint32_t{0});                               \
+    jit_ldxr_##GNU_TYPE(JIT_R0, JIT_R1, JIT_R0);                               \
     storeRd(0);                                                                \
     break;
 
-      PROT_MAKE_IMPL(LB, Byte, true);
-      PROT_MAKE_IMPL(LBU, Byte, false);
-      PROT_MAKE_IMPL(LH, Half, true);
-      PROT_MAKE_IMPL(LHU, Half, false);
-      PROT_MAKE_IMPL(LW, Word, false);
+      PROT_MAKE_IMPL(LB, c);
+      PROT_MAKE_IMPL(LBU, uc);
+      PROT_MAKE_IMPL(LH, s);
+      PROT_MAKE_IMPL(LHU, us);
+      PROT_MAKE_IMPL(LW, ui);
 #undef PROT_MAKE_IMPL
 
-#define PROT_MAKE_IMPL(OP, type)                                               \
+#define PROT_MAKE_IMPL(OP, GNU_TYPE)                                           \
   case k##OP:                                                                  \
     loadRS1(0);                                                                \
     jit_addi(JIT_R0, JIT_R0, insn.imm());                                      \
+    jit_andi(JIT_R0, JIT_R0, ~std::uint32_t{0});                               \
     loadRS2(1);                                                                \
-    jit_prepare();                                                             \
-    jit_pushargr(JIT_V0);                                                      \
-    jit_pushargr(JIT_R0);                                                      \
-    jit_pushargr(JIT_R1);                                                      \
-    jit_finishi(reinterpret_cast<void *>(&storeHelper<isa::type>));            \
+    loadMemBase(2);                                                            \
+    jit_stxr_##GNU_TYPE(JIT_R2, JIT_R0, JIT_R1);                               \
     break;
 
-      PROT_MAKE_IMPL(SB, Byte);
-      PROT_MAKE_IMPL(SH, Half);
-      PROT_MAKE_IMPL(SW, Word);
+      PROT_MAKE_IMPL(SB, c);
+      PROT_MAKE_IMPL(SH, s);
+      PROT_MAKE_IMPL(SW, i);
 
     case kSBREAK:
     case kSCALL:
