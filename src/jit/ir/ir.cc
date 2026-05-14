@@ -123,50 +123,6 @@ private:
 };
 
 void IRJit::registerHelpers(ir_ctx *ctx) {
-
-  ir_ref proto_lw = ir_proto_2(ctx, IR_CC_DEFAULT, IR_U32, IR_ADDR, IR_U32);
-  m_func_proto_map["loadHelperWord"] = proto_lw;
-  m_func_proto_map["loadHelperWord_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(loadHelper<isa::Word>), proto_lw);
-
-  ir_ref proto_lh = ir_proto_2(ctx, IR_CC_DEFAULT, IR_I16, IR_ADDR, IR_U32);
-  m_func_proto_map["loadHelperHalf"] = proto_lh;
-  m_func_proto_map["loadHelperHalf_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(loadHelper<isa::Half>), proto_lh);
-
-  ir_ref proto_lb = ir_proto_2(ctx, IR_CC_DEFAULT, IR_I8, IR_ADDR, IR_U32);
-  m_func_proto_map["loadHelperByte"] = proto_lb;
-  m_func_proto_map["loadHelperByte_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(loadHelper<isa::Byte>), proto_lb);
-
-  ir_ref proto_lhu = ir_proto_2(ctx, IR_CC_DEFAULT, IR_U16, IR_ADDR, IR_U32);
-  m_func_proto_map["loadHelperUHalf"] = proto_lhu;
-  m_func_proto_map["loadHelperUHalf_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(loadHelper<isa::Half>), proto_lhu);
-
-  ir_ref proto_lbu = ir_proto_2(ctx, IR_CC_DEFAULT, IR_U8, IR_ADDR, IR_U32);
-  m_func_proto_map["loadHelperUByte"] = proto_lbu;
-  m_func_proto_map["loadHelperUByte_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(loadHelper<isa::Byte>), proto_lbu);
-
-  ir_ref proto_sw =
-      ir_proto_3(ctx, IR_CC_DEFAULT, IR_VOID, IR_ADDR, IR_U32, IR_U32);
-  m_func_proto_map["storeHelperWord"] = proto_sw;
-  m_func_proto_map["storeHelperWord_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(storeHelper<isa::Word>), proto_sw);
-
-  ir_ref proto_sh =
-      ir_proto_3(ctx, IR_CC_DEFAULT, IR_VOID, IR_ADDR, IR_U32, IR_I16);
-  m_func_proto_map["storeHelperHalf"] = proto_sh;
-  m_func_proto_map["storeHelperHalf_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(storeHelper<isa::Half>), proto_sh);
-
-  ir_ref proto_sb =
-      ir_proto_3(ctx, IR_CC_DEFAULT, IR_VOID, IR_ADDR, IR_U32, IR_I8);
-  m_func_proto_map["storeHelperByte"] = proto_sb;
-  m_func_proto_map["storeHelperByte_func"] = ir_const_func_addr(
-      ctx, reinterpret_cast<uintptr_t>(storeHelper<isa::Byte>), proto_sb);
-
   ir_ref proto_ecall = ir_proto_1(ctx, IR_CC_DEFAULT, IR_VOID, IR_ADDR);
   m_func_proto_map["syscallHelper"] = proto_ecall;
   m_func_proto_map["syscallHelper_func"] = ir_const_func_addr(
@@ -178,6 +134,8 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   ir_ref state_ptr = ir_PARAM(IR_ADDR, "state", 1);
 
   ir_ref pc = ir_LOAD_U32(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)));
+  ir_ref mem_base =
+      ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, mem_base)));
 
   auto regAddr = [&](uint32_t reg) {
     return ir_ADD_OFFSET(state_ptr,
@@ -191,6 +149,10 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   auto setDst = [&](uint32_t rd, ir_ref val) {
     if (rd != 0)
       ir_STORE(regAddr(rd), val);
+  };
+
+  auto getHostAddr = [&](ir_ref guest_addr) {
+    return ir_ADD_U64(mem_base, ir_ZEXT_U64(guest_addr));
   };
 
   for (const auto &insn : info.insns) {
@@ -221,15 +183,70 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       PROT_IR_B_COND_OP(BLTU, ir_ULT)
       PROT_IR_B_COND_OP(BGEU, ir_UGE)
 
-      PROT_IR_LOAD_OP(LB, "loadHelperByte_func", IR_I8, ir_SEXT_U32)
-      PROT_IR_LOAD_OP(LH, "loadHelperHalf_func", IR_I16, ir_SEXT_U32)
-      PROT_IR_LOAD_OP(LW, "loadHelperWord_func", IR_I32, ir_SEXT_U32)
-      PROT_IR_LOAD_OP(LBU, "loadHelperUByte_func", IR_U8, ir_ZEXT_U32)
-      PROT_IR_LOAD_OP(LHU, "loadHelperUHalf_func", IR_U16, ir_ZEXT_U32)
-
-      PROT_IR_STORE_OP(SB, "storeHelperByte_func", ir_TRUNC_I8)
-      PROT_IR_STORE_OP(SH, "storeHelperHalf_func", ir_TRUNC_I16)
-      PROT_IR_STORE_OP(SW, "storeHelperWord_func", ir_TRUNC_I32)
+    case kLB: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = ir_LOAD_U8(host_addr);
+      setDst(insn.rd(), ir_SEXT_U32(val));
+      break;
+    }
+    case kLH: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = ir_LOAD_U16(host_addr);
+      setDst(insn.rd(), ir_SEXT_U32(val));
+      break;
+    }
+    case kLW: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = ir_LOAD_U32(host_addr);
+      setDst(insn.rd(), val);
+      break;
+    }
+    case kLBU: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = ir_LOAD_U8(host_addr);
+      setDst(insn.rd(), ir_ZEXT_U32(val));
+      break;
+    }
+    case kLHU: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = ir_LOAD_U16(host_addr);
+      setDst(insn.rd(), ir_ZEXT_U32(val));
+      break;
+    }
+    case kSW: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = loadReg(insn.rs2());
+      ir_STORE(host_addr, val);
+      break;
+    }
+    case kSB: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = loadReg(insn.rs2());
+      ir_STORE(host_addr, ir_TRUNC_I8(val));
+      break;
+    }
+    case kSH: {
+      ir_ref rs1 = loadReg(insn.rs1());
+      ir_ref guest_addr = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
+      ir_ref host_addr = getHostAddr(guest_addr);
+      ir_ref val = loadReg(insn.rs2());
+      ir_STORE(host_addr, ir_TRUNC_I16(val));
+      break;
+    }
 
     case kJAL: {
       ir_ref ret_addr = ir_ADD_U32(pc, ir_CONST_U32(isa::kWordSize));
@@ -303,6 +320,8 @@ JitFunction IRJit::translate(const BBInfo &info) {
     throw std::runtime_error("IR JIT compilation failed");
   }
 
+  // ir_disasm("jit_func", nativeCode, codeSize, false, &ctx, stdout);
+  // std::cout << "----------------------------------------------\n";
   ir_free(&ctx);
 
   return reinterpret_cast<JitFunction>(nativeCode);
