@@ -2,15 +2,31 @@
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
+#include <fmt/std.h>
 
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 
 extern "C" {
 #include <sys/mman.h>
+#include <x86intrin.h>
 }
 
 namespace prot::engine {
+namespace {
+template <typename Func, typename... Args>
+decltype(auto) measure(std::uintmax_t &dst, Func &&func, Args &&...args) {
+  struct Timer {
+    std::uintmax_t &dst;
+    std::uintmax_t beg{};
+    Timer(std::uintmax_t &dst) : dst(dst), beg(__rdtsc()) {}
+    ~Timer() { dst += __rdtsc() - beg; }
+  } timer{dst};
+  return std::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+} // namespace
+
 void JitEngine::step(CPUState &cpu) {
   while (!cpu.finished) [[likely]] {
     if (m_config.enableDump) {
@@ -22,7 +38,7 @@ void JitEngine::step(CPUState &cpu) {
     if (m_translator) {
       if (const auto found = m_tbCache.lookup(pc); found != nullptr)
           [[likely]] {
-        found(cpu);
+        measure(m_execTicks, found, cpu);
         continue;
       }
     }
@@ -50,7 +66,8 @@ void JitEngine::step(CPUState &cpu) {
     }
     if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
         [[likely]] {
-      auto code = m_translator->translate(bbIt->second);
+      auto code = measure(m_transTicks, &Translator::translate, m_translator,
+                          bbIt->second);
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
@@ -80,6 +97,21 @@ auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
   }
 
   return nullptr;
+}
+
+JitEngine::~JitEngine() {
+  std::filesystem::path jsonPath = std::filesystem::current_path() / "jit.json";
+  std::ofstream json(jsonPath);
+  fmt::println(json, R"(
+{{
+    "exec_ticks": {},
+    "translate_ticks": {}
+}}
+)",
+               m_execTicks, m_transTicks);
+  if (json) {
+    fmt::println(std::cerr, "Stats were written to file: {}", jsonPath);
+  }
 }
 
 void CodeHolder::Unmap::operator()(void *ptr) const noexcept {
