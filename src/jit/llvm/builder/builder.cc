@@ -47,15 +47,13 @@ struct InsnIRBuilder : public llvm::IRBuilder<> {
 
     return llvm::StructType::create(Ctx,
                                     {regsArrayType, pcType, finishedType,
-                                     memoryPtrType, icountType, wordType},
+                                     memoryPtrType, icountType, wordType,
+                                     memoryPtrType},
                                     "CPUState", /*IsPacked=*/false);
   }
 
   void generateLoad(const isa::Instruction &insn);
   void generateStore(const isa::Instruction &insn);
-
-  template <typename T> llvm::Function *getLoadFn();
-  template <typename T> llvm::Function *getStoreFn();
 
   void advancePC();
 };
@@ -104,44 +102,14 @@ public:
   [[nodiscard]] constexpr auto name() const { return m_name; }
 };
 
-template <typename T> T doLoad(CPUState &cpu, isa::Imm addr) {
-  return cpu.memory->read<T>(addr);
-}
-
-void doStore(CPUState &cpu, isa::Imm addr, auto val) {
-  cpu.memory->write(addr, val);
-}
-
 void doSyscall(CPUState &state) { state.emulateSysCall(); }
 
-#define PROT_GEN_LOAD(Tpy, Size)                                               \
-  ExtFunctionInfo<&doLoad<isa::Tpy>> {                                         \
-    "doLoad" #Tpy, [](llvm::Module &Mod) {                                     \
-      auto &Ctx = Mod.getContext();                                            \
-      return CpuStateMethInfo{.OutTy = llvm::Type::getInt##Size##Ty(Ctx),      \
-                              .OtherArgs = {llvm::Type::getInt32Ty(Ctx)}};     \
-    }                                                                          \
-  }
-#define PROT_GEN_STORE(Tpy, Size)                                              \
-  ExtFunctionInfo<&doStore<isa::Tpy>> {                                        \
-    "doStore" #Tpy, [](llvm::Module &Mod) {                                    \
-      auto &Ctx = Mod.getContext();                                            \
-      return CpuStateMethInfo{                                                 \
-          .OutTy = llvm::Type::getVoidTy(Ctx),                                 \
-          .OtherArgs = {llvm::Type::getInt32Ty(Ctx),                           \
-                        llvm::Type::getInt##Size##Ty(Ctx)}};                   \
-    }                                                                          \
-  }
-
-constexpr auto kExtTable = std::make_tuple(
-    PROT_GEN_LOAD(Byte, 8), PROT_GEN_LOAD(Half, 16), PROT_GEN_LOAD(Word, 32),
-    PROT_GEN_STORE(Byte, 8), PROT_GEN_STORE(Half, 16), PROT_GEN_STORE(Word, 32),
-    ExtFunctionInfo<&doSyscall>{"doSyscall", [](llvm::Module &Mod) {
-                                  auto &Ctx = Mod.getContext();
-                                  return CpuStateMethInfo{
-                                      .OutTy = llvm::Type::getVoidTy(Ctx),
-                                      .OtherArgs = {}};
-                                }});
+constexpr auto kExtTable = std::make_tuple(ExtFunctionInfo<&doSyscall>{
+    "doSyscall", [](llvm::Module &Mod) {
+      auto &Ctx = Mod.getContext();
+      return CpuStateMethInfo{.OutTy = llvm::Type::getVoidTy(Ctx),
+                              .OtherArgs = {}};
+    }});
 
 template <typename Func> void forExtFunc(Func &&f) {
   std::apply(
@@ -151,15 +119,11 @@ template <typename Func> void forExtFunc(Func &&f) {
 template <auto Func> constexpr const auto &getSpecialFunc() {
   return std::get<ExtFunctionInfo<Func>>(kExtTable);
 }
-template <typename T> llvm::Function *InsnIRBuilder::getLoadFn() {
-  return getSpecialFunc<&doLoad<T>>()(*getModule());
-}
-
-template <typename T> llvm::Function *InsnIRBuilder::getStoreFn() {
-  return getSpecialFunc<&doStore<T>>()(*getModule());
-}
 
 void InsnIRBuilder::generateLoad(const isa::Instruction &insn) {
+  if (insn.rd() == 0) {
+    return;
+  }
   auto *cpuStructTy = getCPUStateType();
   auto *regsArrTy = cpuStructTy->getStructElementType(0);
 
@@ -174,32 +138,36 @@ void InsnIRBuilder::generateLoad(const isa::Instruction &insn) {
 
   llvm::Value *addrVal = CreateAdd(rs1Val, getInt32(insn.imm()));
 
-  auto [func, do_sext] = [&] {
-    switch (insn.opcode()) {
+  llvm::Value *memBase =
+      CreateLoad(llvm::PointerType::get(getContext(), 0),
+                 CreateStructGEP(cpuStructTy, cpuStatePtr, 6));
+  auto *loadAddr =
+      CreateGEP(getInt8Ty(), memBase, CreateZExt(addrVal, getInt64Ty()));
+
+  auto [type, do_sext] = [&] {
+    switch (auto opc = insn.opcode()) {
       using enum isa::Opcode;
     case kLB:
-      return std::pair{getLoadFn<isa::Byte>(), true};
     case kLBU:
-      return std::pair{getLoadFn<isa::Byte>(), false};
+      return std::pair{getInt8Ty(), opc == kLB};
     case kLH:
-      return std::pair{getLoadFn<isa::Half>(), true};
     case kLHU:
-      return std::pair{getLoadFn<isa::Half>(), false};
+      return std::pair{getInt16Ty(), opc == kLH};
     case kLW:
-      return std::pair{getLoadFn<isa::Word>(), false};
+      return std::pair{getInt32Ty(), false};
     default:
       throw std::invalid_argument{"Bad opcode"};
     }
   }();
 
-  llvm::Value *loaded = CreateCall(func, {cpuStatePtr, addrVal});
-
-  if (insn.rd() != 0) {
-    CreateStore(do_sext
-                    ? CreateSExt(loaded, llvm::Type::getInt32Ty(getContext()))
-                    : CreateZExt(loaded, llvm::Type::getInt32Ty(getContext())),
-                rdPtr);
+  llvm::Value *loaded = CreateLoad(type, loadAddr);
+  if (do_sext) {
+    loaded = CreateSExt(loaded, getInt32Ty());
+  } else {
+    loaded = CreateZExt(loaded, getInt32Ty());
   }
+
+  CreateStore(loaded, rdPtr);
 }
 
 void InsnIRBuilder::generateStore(const isa::Instruction &insn) {
@@ -217,22 +185,27 @@ void InsnIRBuilder::generateStore(const isa::Instruction &insn) {
 
   llvm::Value *rs2Ptr = CreateInBoundsGEP(regsArrTy, regsPtr,
                                           {getInt32(0), getInt32(insn.rs2())});
-  auto [valTy, func] = [&] {
+  auto *valTy = getIntNTy([&] {
     switch (insn.opcode()) {
       using enum isa::Opcode;
     case kSB:
-      return std::pair(getInt8Ty(), getStoreFn<isa::Byte>());
+      return sizeofBits<isa::Byte>();
     case kSH:
-      return std::pair(getInt16Ty(), getStoreFn<isa::Half>());
+      return sizeofBits<isa::Half>();
     case kSW:
-      return std::pair(getInt32Ty(), getStoreFn<isa::Word>());
+      return sizeofBits<isa::Word>();
     default:
       throw std::invalid_argument{"Bad store insn"};
     }
-  }();
-  auto *rs2Val = CreateLoad(valTy, rs2Ptr);
+  }());
 
-  CreateCall(func, {cpuStatePtr, addrVal, rs2Val});
+  llvm::Value *memBase =
+      CreateLoad(llvm::PointerType::get(getContext(), 0),
+                 CreateStructGEP(cpuStructTy, cpuStatePtr, 6));
+  auto *storeAddr =
+      CreateGEP(getInt8Ty(), memBase, CreateZExt(addrVal, getInt64Ty()));
+
+  CreateStore(CreateLoad(valTy, rs2Ptr), storeAddr);
 }
 
 void InsnIRBuilder::advancePC() {
