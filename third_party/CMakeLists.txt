@@ -32,9 +32,11 @@ ExternalProject_Add(
 set(LIGHTNING_INCLUDE_DIR "${LIGHTNING_INSTALL_DIR}/include")
 make_directory(${LIGHTNING_INCLUDE_DIR})
 
-add_library(lightning_iface INTERFACE)
-target_include_directories(lightning_iface INTERFACE ${LIGHTNING_INCLUDE_DIR})
-target_link_libraries(lightning_iface INTERFACE ${LIGHTNING_LIBRARY})
+add_library(lightning_iface STATIC IMPORTED GLOBAL)
+target_include_directories(lightning_iface SYSTEM
+                           INTERFACE ${LIGHTNING_INCLUDE_DIR})
 add_dependencies(lightning_iface lightning_lib)
+set_target_properties(lightning_iface PROPERTIES IMPORTED_LOCATION
+                                                 ${LIGHTNING_LIBRARY})
 set_target_properties(lightning_iface PROPERTIES EXCLUDE_FROM_ALL True)
 add_library(PROT::gnu_lightning ALIAS lightning_iface)

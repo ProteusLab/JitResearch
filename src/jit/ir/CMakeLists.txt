@@ -22,9 +22,9 @@ ExternalProject_Add(
 set(IR_INCLUDE_DIR "${IR_INSTALL_DIR}/include")
 make_directory(${IR_INCLUDE_DIR})
 
-add_library(ir_iface INTERFACE)
-target_include_directories(ir_iface INTERFACE SYSTEM ${IR_INCLUDE_DIR})
-target_link_libraries(ir_iface INTERFACE ${IR_LIBRARY})
+add_library(ir_iface STATIC IMPORTED)
+target_include_directories(ir_iface SYSTEM INTERFACE ${IR_INCLUDE_DIR})
+set_target_properties(ir_iface PROPERTIES IMPORTED_LOCATION ${IR_LIBRARY})
 add_dependencies(ir_iface ir_makefile_build)
 set_target_properties(ir_iface PROPERTIES EXCLUDE_FROM_ALL True)
 
