@@ -20,6 +20,8 @@ struct Memory {
   virtual void writeBlock(std::span<const std::byte> src, isa::Addr addr) = 0;
   virtual void readBlock(isa::Addr addr, std::span<std::byte> dest) const = 0;
 
+  virtual void *getBase() const { return nullptr; }
+
   void fillBlock(isa::Addr addr, std::byte value, std::size_t count) {
     for (std::size_t i = 0; i < count; ++i) {
       writeBlock({&value, 1}, addr + i);

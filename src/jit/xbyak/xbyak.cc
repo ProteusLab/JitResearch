@@ -25,15 +25,6 @@ private:
   std::vector<CodeHolder> m_holders;
 };
 
-void storeHelper(CPUState &state, isa::Addr addr,
-                 std::unsigned_integral auto val) {
-  state.memory->write(addr, val);
-}
-
-template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
-  return state.memory->read<T>(addr);
-}
-
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
 JitFunction XByakJit::translate(const BBInfo &info) {
@@ -51,6 +42,16 @@ JitFunction XByakJit::translate(const BBInfo &info) {
 
   auto getPc = [&frame, this] {
     return dword[frame.p[0] + offsetof(CPUState, pc)];
+  };
+
+  auto getMemBase = [&frame, this](Xbyak::Reg64 dst) {
+    mov(dst, qword[frame.p[0] + offsetof(CPUState, mem_base)]);
+  };
+
+  auto getMemAccOp = [&](Xbyak::Reg32 base, Xbyak::Reg32 addr,
+                         const Xbyak::AddressFrame &mem_type) {
+    getMemBase(base.cvt64());
+    return mem_type[base.cvt64() + addr.cvt64()];
   };
 
   for (const auto &insn : info.insns) {
@@ -150,49 +151,21 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       }
       break;
     }
-    case kLB:
-    case kLBU:
-    case kLH:
-    case kLHU:
-    case kLW: {
-      auto addr = frame.p[1].cvt32();
-      getRs1(addr);
-      add(addr, insn.imm()); // calc addr
+#define PROT_MAKE_LOAD(OP, MOV_OP, WORD_OP)                                    \
+  case k##OP:                                                                  \
+    getRs1(temp1);                                                             \
+    add(temp1, insn.imm());                                                    \
+    MOV_OP(temp1, getMemAccOp(temp2, temp1, WORD_OP));                         \
+    setRd(temp1);                                                              \
+    break;
+      PROT_MAKE_LOAD(LB, movsx, byte);
+      PROT_MAKE_LOAD(LBU, movzx, byte);
+      PROT_MAKE_LOAD(LH, movsx, word);
+      PROT_MAKE_LOAD(LHU, movzx, word);
+      PROT_MAKE_LOAD(LW, mov, dword);
 
-      const auto helper = [op = insn.opcode()] {
-        switch (op) {
-        case kLB:
-        case kLBU:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Byte>);
-        case kLH:
-        case kLHU:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Half>);
-        case kLW:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Word>);
-        default:
-          return std::uintptr_t{};
-        }
-      }();
+#undef PROT_MAKE_LOAD
 
-      push(frame.p[0]);
-      mov(frame.t[0], helper);
-      call(frame.t[0]);
-      pop(frame.p[0]);
-      switch (insn.opcode()) {
-      case kLB:
-        cbw();
-        [[fallthrough]];
-      case kLH:
-        cwde();
-        break;
-      default:
-        break;
-      }
-
-      setRd(eax);
-
-      break;
-    }
     case kPAUSE:
     case kSBREAK:
     case kSCALL: {
@@ -244,34 +217,19 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       setRd(temp1);
       break;
     }
-    case kSB:
-    case kSH:
-    case kSW: {
-      auto addr = frame.p[1].cvt32();
-      getRs1(addr);
-      add(addr, insn.imm()); // calc addr
-      auto val = frame.p[2].cvt32();
-      getRs2(val);
 
-      const auto helper = [op = insn.opcode()] {
-        switch (op) {
-        case kSB:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Byte>);
-        case kSH:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Half>);
-        case kSW:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Word>);
-        default:
-          return std::uintptr_t{};
-        };
-      }();
+#define PROT_MAKE_STORE(OP, MEM_OP, BITS)                                      \
+  case k##OP:                                                                  \
+    getRs1(temp1);                                                             \
+    add(temp1, insn.imm());                                                    \
+    getRs2(temp3);                                                             \
+    mov(getMemAccOp(temp2, temp1, MEM_OP), temp3.cvt##BITS());                 \
+    break;
 
-      push(frame.p[0]);
-      mov(frame.t[0], helper);
-      call(frame.t[0]);
-      pop(frame.p[0]);
-      break;
-    }
+      PROT_MAKE_STORE(SB, byte, 8)
+      PROT_MAKE_STORE(SH, word, 16)
+      PROT_MAKE_STORE(SW, dword, 32)
+
     case kNumOpcodes:
       throw std::invalid_argument{"Unexpected insn id"};
     }

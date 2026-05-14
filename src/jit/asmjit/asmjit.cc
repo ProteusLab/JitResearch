@@ -79,46 +79,6 @@
     break;                                                                     \
   }
 
-#define PROT_ASMJIT_S_OP(OP, DATA_TYPE)                                        \
-  case k##OP: {                                                                \
-    loadReg(rs1, insn.rs1());                                                  \
-    cc.add(rs1, insn.imm());                                                   \
-    loadReg(rs2, insn.rs2());                                                  \
-    asmjit::InvokeNode *invoke{};                                              \
-    cc.invoke(&invoke, reinterpret_cast<size_t>(storeHelper<DATA_TYPE>),       \
-              asmjit::FuncSignature::build<void, CPUState &, isa::Addr,        \
-                                           DATA_TYPE>());                      \
-    invoke->setArg(0, state_ptr);                                              \
-    invoke->setArg(1, rs1);                                                    \
-    invoke->setArg(2, rs2);                                                    \
-    break;                                                                     \
-  }
-
-#define PROT_ASMJIT_L_OP(OP, DATA_TYPE)                                        \
-  case k##OP: {                                                                \
-    loadReg(rs1, insn.rs1());                                                  \
-    cc.add(rs1, insn.imm());                                                   \
-    asmjit::InvokeNode *invoke = nullptr;                                      \
-    cc.invoke(                                                                 \
-        &invoke, reinterpret_cast<size_t>(loadHelper<DATA_TYPE>),              \
-        asmjit::FuncSignature::build<DATA_TYPE, CPUState &, isa::Addr>());     \
-    invoke->setArg(0, state_ptr);                                              \
-    invoke->setArg(1, rs1);                                                    \
-    invoke->setRet(0, rd);                                                     \
-    switch (insn.opcode()) {                                                   \
-    case kLB:                                                                  \
-      cc.movsx(rd, rd.r8());                                                   \
-      break;                                                                   \
-    case kLH:                                                                  \
-      cc.movsx(rd, rd.r16());                                                  \
-      break;                                                                   \
-    default:                                                                   \
-      break;                                                                   \
-    }                                                                          \
-    setDst(insn.rd(), rd);                                                     \
-    break;                                                                     \
-  }
-
 namespace prot::engine {
 namespace {
 
@@ -134,14 +94,6 @@ private:
   asmjit::JitRuntime runtime;
 };
 
-template <typename T> void storeHelper(CPUState &state, isa::Addr addr, T val) {
-  state.memory->write(addr, val);
-}
-
-template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
-  return state.memory->read<T>(addr);
-}
-
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
 JitFunction AsmJit::translate(const BBInfo &info) {
@@ -154,6 +106,10 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
   auto state_ptr = cc.newUIntPtr();
   func_node->setArg(0, state_ptr);
+
+  auto mem_base = cc.newUInt64();
+  cc.mov(mem_base,
+         asmjit::x86::qword_ptr(state_ptr, offsetof(CPUState, mem_base)));
 
   auto getReg = [&state_ptr](auto regId) {
     return asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, regs) +
@@ -180,6 +136,9 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto rs1 = cc.newGpd();
   auto rs2 = cc.newGpd();
   auto rd = cc.newGpd();
+
+  auto guest_addr = cc.newGpd();
+  auto host_addr = cc.newUInt64();
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -209,17 +168,102 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       PROT_ASMJIT_B_COND_OP(BLTU, kUnsignedLT)
       PROT_ASMJIT_B_COND_OP(BGEU, kUnsignedGE)
 
-      PROT_ASMJIT_L_OP(LB, prot::isa::Byte)
-      PROT_ASMJIT_L_OP(LH, prot::isa::Half)
-      PROT_ASMJIT_L_OP(LBU, prot::isa::Byte)
-      PROT_ASMJIT_L_OP(LHU, prot::isa::Half)
-      PROT_ASMJIT_L_OP(LW, prot::isa::Word)
+    case kLW: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
 
-      PROT_ASMJIT_S_OP(SB, prot::isa::Byte)
-      PROT_ASMJIT_S_OP(SH, prot::isa::Half)
-      PROT_ASMJIT_S_OP(SW, prot::isa::Word)
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
 
-    // PROT_ASMJIT_J_OP
+      cc.mov(rd, asmjit::x86::dword_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLH: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movsx(rd, asmjit::x86::word_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLHU: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movzx(rd, asmjit::x86::word_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLB: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movsx(rd, asmjit::x86::byte_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLBU: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movzx(rd, asmjit::x86::byte_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kSW: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::dword_ptr(host_addr), rd);
+      break;
+    }
+
+    case kSH: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::word_ptr(host_addr), rd.r16());
+      break;
+    }
+
+    case kSB: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::byte_ptr(host_addr), rd.r8());
+      break;
+    }
+
     case kJAL: {
       cc.mov(rd, getPC());
       cc.add(rd, isa::kWordSize);
@@ -229,6 +273,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       cc.mov(getPC(), pc);
       break;
     }
+
     case kJALR: {
       cc.mov(rd, getPC());
       cc.add(rd, isa::kWordSize);
@@ -243,7 +288,6 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       break;
     }
 
-    // PROT_ASMJIT_U_OP
     case kLUI: {
       cc.mov(rs1, insn.imm());
       setDst(insn.rd(), rs1);

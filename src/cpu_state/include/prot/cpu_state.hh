@@ -5,10 +5,9 @@
 #include <ostream>
 
 #include "prot/isa.hh"
+#include "prot/memory.hh"
 
 namespace prot {
-
-struct Memory;
 
 struct CPUState final {
   static constexpr std::size_t kNumRegs = 32;
@@ -20,7 +19,13 @@ struct CPUState final {
   isa::Icount icount{0};
   isa::Word m_ExitCode{0};
 
-  explicit CPUState(Memory *mem) : memory(mem) {}
+  void *mem_base{nullptr};
+
+  explicit CPUState(Memory *mem) : memory(mem) {
+    if (mem)
+      mem_base = memory->getBase();
+  }
+  // explicit CPUState(Memory *mem) : memory(mem) {}
 
   void setPC(isa::Word newPC) { pc = newPC; }
   isa::Word getPC() const { return pc; }
