@@ -303,6 +303,8 @@ JitFunction IRJit::translate(const BBInfo &info) {
     throw std::runtime_error("IR JIT compilation failed");
   }
 
+  ir_free(&ctx);
+
   return reinterpret_cast<JitFunction>(nativeCode);
 }
 
