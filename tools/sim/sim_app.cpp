@@ -47,6 +47,8 @@ int main(int argc, const char *argv[]) try {
     jitOpts->add_flag("--dump-cpu", jitConfig.enableDump,
                       "Enable dump of CPU state before each TB");
 
+    app.add_option("--stats-file", jitConfig.statsFile, "Path to statistics JSON");
+
     CLI11_PARSE(app, argc, argv);
   }
   const bool jitEnabled = !jitBackend.empty();

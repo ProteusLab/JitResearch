@@ -4,6 +4,7 @@
 #include "prot/interpreter.hh"
 #include <unordered_map>
 #include <vector>
+#include <filesystem>
 
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
@@ -43,6 +44,7 @@ public:
     std::size_t execThreshold{};
     bool singleStep{false};
     bool enableDump{false};
+    std::filesystem::path statsFile{};
   };
 
   JitEngine(const Config &config, std::unique_ptr<Translator> translator)
@@ -93,6 +95,7 @@ private:
 private:
   std::uintmax_t m_execTicks{};
   std::uintmax_t m_transTicks{};
+  std::uintmax_t m_interpTicks{};
   Config m_config{};
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;

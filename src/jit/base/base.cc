@@ -79,12 +79,12 @@ void JitEngine::step(CPUState &cpu) {
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
       }
 
-      code(cpu);
+      measure(m_execTicks, code, cpu);
       m_tbCache.insert(pc, code);
       continue;
     }
 
-    interpret(cpu, bbIt->second);
+    measure(m_interpTicks, &JitEngine::interpret, this, cpu, bbIt->second);
   }
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
@@ -106,15 +106,17 @@ auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
 }
 
 JitEngine::~JitEngine() {
-  std::filesystem::path jsonPath = std::filesystem::current_path() / "jit.json";
+  std::filesystem::path jsonPath =
+      std::filesystem::current_path() / m_config.statsFile;
   std::ofstream json(jsonPath);
   fmt::println(json, R"(
 {{
     "exec_ticks": {},
-    "translate_ticks": {}
+    "translate_ticks": {},
+    "interp_ticks": {}
 }}
 )",
-               m_execTicks, m_transTicks);
+               m_execTicks, m_transTicks, m_interpTicks);
   if (json) {
     fmt::println(std::cerr, "Stats were written to file: {}", jsonPath);
   }
