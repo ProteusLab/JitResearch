@@ -12,6 +12,7 @@ extern "C" {
 
 namespace prot::engine {
 void JitEngine::step(CPUState &cpu) {
+  cpu.tb_cache_base = m_tbCache.baseAddr();
   while (!cpu.finished) [[likely]] {
     if (m_config.enableDump) {
       cpu.dump(std::cout);
@@ -20,9 +21,16 @@ void JitEngine::step(CPUState &cpu) {
     // colllect bb
     const auto pc = cpu.getPC();
     if (m_translator) {
-      if (const auto found = m_tbCache.lookup(pc); found != nullptr)
-          [[likely]] {
-        found(cpu);
+      if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
+        // Block chaining: a translated block may hand us its successor
+        // directly via cpu.next_tb, letting us stay out of the slow path.
+        // Backends without inline chaining simply leave next_tb == nullptr,
+        // which reproduces the original one-block-per-dispatch behaviour.
+        do {
+          cpu.next_tb = nullptr;
+          fn(cpu);
+          fn = reinterpret_cast<JitFunction>(const_cast<void *>(cpu.next_tb));
+        } while (fn != nullptr);
         continue;
       }
     }

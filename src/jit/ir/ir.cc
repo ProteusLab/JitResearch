@@ -304,6 +304,55 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   icount = ir_ADD_U64(icount, ir_CONST_U32(info.insns.size()));
   ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, icount)), icount);
 
+  // Block chaining: probe the TB cache for the successor block inline and
+  // tail-call it, so a hot chain of blocks stays entirely in generated code
+  // instead of returning to the C++ dispatcher after every block.
+  //
+  // Blocks terminated by JALR (indirect jumps: returns, calls through a
+  // register, switch tables) have an unpredictable successor. Chaining them
+  // turns one well-predicted dispatcher call site into many polymorphic
+  // indirect tail-calls that mispredict, so we leave those to the dispatcher.
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+  if (lastIsJalr) {
+    ir_RETURN(IR_UNUSED);
+    return;
+  }
+
+  bool hasEcall = false;
+  for (const auto &insn : info.insns) {
+    if (insn.opcode() == isa::Opcode::kECALL) {
+      hasEcall = true;
+      break;
+    }
+  }
+
+  if (hasEcall) {
+    // A syscall may have requested program exit; never chain past it.
+    ir_ref fin =
+        ir_LOAD_U8(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, finished)));
+    ir_ref if_fin = ir_IF(fin);
+    ir_IF_TRUE(if_fin);
+    ir_RETURN(IR_UNUSED);
+    ir_IF_FALSE(if_fin);
+  }
+
+  ir_ref cache_base =
+      ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, tb_cache_base)));
+  ir_ref hash =
+      ir_AND_U32(ir_SHR_U32(pc, ir_CONST_U32(kTbCacheGranularityLog2)),
+                 ir_CONST_U32(kTbCacheMask));
+  ir_ref entry =
+      ir_ADD_U64(cache_base, ir_MUL_U64(ir_ZEXT_U64(hash),
+                                        ir_CONST_U64(sizeof(TbCacheEntry))));
+  ir_ref gpa =
+      ir_LOAD_U32(ir_ADD_U64(entry, ir_CONST_U64(offsetof(TbCacheEntry, gpa))));
+  ir_ref next = ir_LOAD_A(entry);
+
+  ir_ref if_hit = ir_IF(ir_EQ(gpa, pc));
+  ir_IF_TRUE(if_hit);
+  ir_TAILCALL_1(IR_VOID, next, state_ptr);
+  ir_IF_FALSE(if_hit);
   ir_RETURN(IR_UNUSED);
 }
 

@@ -51,7 +51,8 @@ struct InsnIRBuilder : public llvm::IRBuilder<> {
     return llvm::StructType::create(
         Ctx,
         {regsArrayType, pcType, finishedType, memoryPtrType, icountType,
-         wordType, memoryPtrType},
+         wordType, memoryPtrType, /*tb_cache_base=*/memoryPtrType,
+         /*next_tb=*/memoryPtrType},
         "CPUState", /*IsPacked=*/false);
   }
 
@@ -985,10 +986,66 @@ void ECALLbuildIR(InsnIRBuilder &Data, const isa::Instruction & /*unused*/) {
 void EBREAKbuildIR(InsnIRBuilder & /*unused*/,
                    const isa::Instruction & /*unused*/) {}
 
+// Inline TB-cache probe + guaranteed tail call to the successor block.
+// Layout constants MUST stay in sync with prot::engine::TbCacheEntry and the
+// kTbCache* constants in prot/jit/base.hh (mirrored here to avoid pulling the
+// engine header into the low-level builder, same approach as getCPUStateType).
+constexpr std::uint32_t kTbGranularityLog2 = 2;
+constexpr std::uint32_t kTbMask = (1U << 22) - 1U;
+constexpr std::uint64_t kTbEntrySize = 16;   // sizeof(TbCacheEntry)
+constexpr std::uint64_t kTbGpaOffset = 8;    // offsetof(TbCacheEntry, gpa)
+
+void emitChainTail(InsnIRBuilder &data, bool hasEcall) {
+  auto &ctx = data.getContext();
+  auto *fn = data.getFn();
+  auto *cpuStructTy = data.getCPUStateType();
+  auto *cpuArg = data.getCpuStatePtr();
+  auto *ptrTy = llvm::PointerType::get(ctx, 0);
+  auto *i32 = data.getInt32Ty();
+
+  llvm::BasicBlock *retBB = llvm::BasicBlock::Create(ctx, "chain.ret", fn);
+  llvm::IRBuilder<>{retBB}.CreateRetVoid();
+
+  if (hasEcall) {
+    llvm::Value *finPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 2);
+    llvm::Value *finVal = data.CreateLoad(data.getInt1Ty(), finPtr);
+    llvm::BasicBlock *contBB = llvm::BasicBlock::Create(ctx, "chain.cont", fn);
+    data.CreateCondBr(finVal, retBB, contBB);
+    data.SetInsertPoint(contBB);
+  }
+
+  llvm::Value *pcPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 1);
+  llvm::Value *pc = data.CreateLoad(i32, pcPtr);
+
+  llvm::Value *basePtr = data.CreateStructGEP(cpuStructTy, cpuArg, 7);
+  llvm::Value *base = data.CreateLoad(ptrTy, basePtr);
+
+  llvm::Value *hash =
+      data.CreateAnd(data.CreateLShr(pc, data.getInt32(kTbGranularityLog2)),
+                     data.getInt32(kTbMask));
+  llvm::Value *off = data.CreateMul(data.CreateZExt(hash, data.getInt64Ty()),
+                                    data.getInt64(kTbEntrySize));
+  llvm::Value *entry = data.CreateGEP(data.getInt8Ty(), base, off);
+  llvm::Value *gpaPtr =
+      data.CreateGEP(data.getInt8Ty(), entry, data.getInt64(kTbGpaOffset));
+  llvm::Value *gpa = data.CreateLoad(i32, gpaPtr);
+  llvm::Value *func = data.CreateLoad(ptrTy, entry);
+
+  llvm::Value *hit = data.CreateICmpEQ(gpa, pc);
+  llvm::BasicBlock *hitBB = llvm::BasicBlock::Create(ctx, "chain.hit", fn);
+  data.CreateCondBr(hit, hitBB, retBB);
+
+  data.SetInsertPoint(hitBB);
+  llvm::CallInst *call = data.CreateCall(fn->getFunctionType(), func, {cpuArg});
+  call->setCallingConv(fn->getCallingConv());
+  call->setTailCallKind(llvm::CallInst::TCK_MustTail);
+  data.CreateRetVoid();
+}
+
 } // namespace
 std::pair<std::unique_ptr<llvm::LLVMContext>, std::unique_ptr<llvm::Module>>
 translate(const std::string &name, const std::vector<isa::Instruction> &insns,
-          isa::Addr startPC) {
+          isa::Addr startPC, ChainMode chainMode) {
   auto ctxPtr = std::make_unique<llvm::LLVMContext>();
   auto modulePtr = std::make_unique<llvm::Module>(name, *ctxPtr);
 
@@ -1028,7 +1085,20 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
   auto *newVal = data.CreateAdd(icVal, data.getInt64(insns.size()));
   data.CreateStore(newVal, icPtr);
 
-  data.CreateRetVoid();
+  const bool lastIsJalr =
+      !insns.empty() && insns.back().opcode() == isa::Opcode::kJALR;
+  if (chainMode == ChainMode::MustTail && !lastIsJalr) {
+    bool hasEcall = false;
+    for (const auto &insn : insns) {
+      if (insn.opcode() == isa::Opcode::kECALL) {
+        hasEcall = true;
+        break;
+      }
+    }
+    emitChainTail(data, hasEcall);
+  } else {
+    data.CreateRetVoid();
+  }
 
   return {std::move(ctxPtr), std::move(modulePtr)};
 }

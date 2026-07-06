@@ -21,6 +21,12 @@ struct CPUState final {
 
   void *mem_base{nullptr};
 
+  // Block-chaining support: set by the engine before execution starts.
+  // JIT backends read tb_cache_base to index the TB cache inline, and write
+  // the next block to execute into next_tb (nullptr => return to dispatcher).
+  const void *tb_cache_base{nullptr};
+  const void *next_tb{nullptr};
+
   explicit CPUState(Memory *mem) : memory(mem) {
     if (mem)
       mem_base = memory->getBase();

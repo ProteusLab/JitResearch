@@ -48,7 +48,7 @@ private:
   JitFunction translate(const BBInfo &info) override {
     auto name = std::to_string(m_moduleId++);
     auto &&[ctx, module] =
-        ll::translate(name, info.insns, info.startPC);
+        ll::translate(name, info.insns, info.startPC, ll::ChainMode::MustTail);
     llvm::orc::ThreadSafeModule tsm(std::move(module), std::move(ctx));
 
     optimizeIRModule(tsm);

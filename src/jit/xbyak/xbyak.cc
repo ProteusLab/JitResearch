@@ -241,6 +241,36 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   add(qword[frame.p[0] + offsetof(CPUState, icount)],
       static_cast<int>(info.insns.size()));
 
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+  if (!lastIsJalr) {
+    bool hasEcall = false;
+    for (const auto &in : info.insns) {
+      if (in.opcode() == isa::Opcode::kECALL) {
+        hasEcall = true;
+        break;
+      }
+    }
+
+    Xbyak::Label skip;
+    if (hasEcall) {
+      cmp(byte[frame.p[0] + offsetof(CPUState, finished)], 0);
+      jne(skip);
+    }
+    mov(temp1, getPc());
+    mov(temp2, temp1);
+    shr(temp2, kTbCacheGranularityLog2);
+    and_(temp2, static_cast<std::uint32_t>(kTbCacheMask));
+    mov(temp3.cvt64(), qword[frame.p[0] + offsetof(CPUState, tb_cache_base)]);
+    shl(temp2.cvt64(), 4);
+    add(temp3.cvt64(), temp2.cvt64());
+    cmp(temp1, dword[temp3.cvt64() + offsetof(TbCacheEntry, gpa)]);
+    jne(skip);
+    mov(temp2.cvt64(), qword[temp3.cvt64() + offsetof(TbCacheEntry, func)]);
+    mov(qword[frame.p[0] + offsetof(CPUState, next_tb)], temp2.cvt64());
+    L(skip);
+  }
+
   frame.close();
   ready();
   // Copy data to holder

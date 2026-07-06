@@ -326,6 +326,47 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   cc.mov(rd, info.insns.size());
   cc.add(asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, icount)), rd);
 
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+  if (!lastIsJalr) {
+    bool hasEcall = false;
+    for (const auto &insn : info.insns) {
+      if (insn.opcode() == isa::Opcode::kECALL) {
+        hasEcall = true;
+        break;
+      }
+    }
+
+    asmjit::Label skip = cc.newLabel();
+
+    if (hasEcall) {
+      cc.cmp(asmjit::x86::byte_ptr(state_ptr, offsetof(CPUState, finished)), 0);
+      cc.jne(skip);
+    }
+
+    auto cpc = cc.newGpd();
+    cc.mov(cpc, getPC());
+
+    auto entry = cc.newUInt64();
+    cc.mov(entry.r32(), cpc);
+    cc.shr(entry.r32(), (uint32_t)kTbCacheGranularityLog2);
+    cc.and_(entry.r32(), (uint32_t)kTbCacheMask);
+    cc.shl(entry, 4);
+    cc.add(entry, asmjit::x86::qword_ptr(state_ptr,
+                                         offsetof(CPUState, tb_cache_base)));
+
+    auto gpa = cc.newGpd();
+    cc.mov(gpa, asmjit::x86::dword_ptr(entry, offsetof(TbCacheEntry, gpa)));
+    cc.cmp(gpa, cpc);
+    cc.jne(skip);
+
+    auto fn = cc.newUInt64();
+    cc.mov(fn, asmjit::x86::qword_ptr(entry, offsetof(TbCacheEntry, func)));
+    cc.mov(asmjit::x86::qword_ptr(state_ptr, offsetof(CPUState, next_tb)), fn);
+
+    cc.bind(skip);
+  }
+
   cc.endFunc();
   cc.finalize();
 
