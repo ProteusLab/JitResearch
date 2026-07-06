@@ -13,6 +13,7 @@ using JitFunction = void (*)(CPUState &);
 struct BBInfo final {
   std::vector<isa::Instruction> insns;
   std::size_t num_exec{};
+  isa::Addr startPC{};
 };
 
 struct Translator {

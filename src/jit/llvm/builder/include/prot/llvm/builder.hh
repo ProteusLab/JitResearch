@@ -13,7 +13,8 @@ namespace prot::ll {
 const std::unordered_map<std::string_view, void *> &getFuncMapper();
 
 std::pair<std::unique_ptr<llvm::LLVMContext>, std::unique_ptr<llvm::Module>>
-translate(const std::string &name, const std::vector<isa::Instruction> &insns);
+translate(const std::string &name, const std::vector<isa::Instruction> &insns,
+          isa::Addr startPC);
 
 } // namespace prot::ll
 

@@ -92,8 +92,9 @@ namespace {
   case k##OP: {                                                                \
     ir_ref rs1 = loadReg(insn.rs1());                                          \
     ir_ref rs2 = loadReg(insn.rs2());                                          \
-    pc = ir_COND_U32(COND(rs1, rs2), ir_ADD_U32(pc, ir_CONST_U32(insn.imm())), \
-                     ir_ADD_U32(pc, ir_CONST_U32(isa::kWordSize)));            \
+    pc = ir_COND_U32(COND(rs1, rs2),                                           \
+                     ir_CONST_U32((uint32_t)(curPC + insn.imm())),             \
+                     ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));        \
     break;                                                                     \
   }
 
@@ -133,7 +134,8 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   ir_START();
   ir_ref state_ptr = ir_PARAM(IR_ADDR, "state", 1);
 
-  ir_ref pc = ir_LOAD_U32(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)));
+  ir_ref pc = IR_UNUSED;
+  isa::Addr curPC = info.startPC;
   ir_ref mem_base =
       ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, mem_base)));
 
@@ -249,14 +251,12 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     }
 
     case kJAL: {
-      ir_ref ret_addr = ir_ADD_U32(pc, ir_CONST_U32(isa::kWordSize));
-      setDst(insn.rd(), ret_addr);
-      pc = ir_ADD_U32(pc, ir_CONST_U32(insn.imm()));
+      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));
+      pc = ir_CONST_U32((uint32_t)(curPC + insn.imm()));
       break;
     }
     case kJALR: {
-      ir_ref ret_addr = ir_ADD_U32(pc, ir_CONST_U32(isa::kWordSize));
-      setDst(insn.rd(), ret_addr);
+      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));
       ir_ref rs1 = loadReg(insn.rs1());
       ir_ref target = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
       pc = ir_AND_U32(target, ir_CONST_U32(~1U));
@@ -268,8 +268,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       break;
     }
     case kAUIPC: {
-      ir_ref res = ir_ADD_U32(pc, ir_CONST_U32(insn.imm()));
-      setDst(insn.rd(), res);
+      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + insn.imm())));
       break;
     }
     case kECALL: {
@@ -290,8 +289,12 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     }
 
     if (!isa::changesPC(insn.opcode())) {
-      pc = ir_ADD_U32(pc, ir_CONST_U32(isa::kWordSize));
+      curPC += isa::kWordSize;
     }
+  }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    pc = ir_CONST_U32((uint32_t)curPC);
   }
 
   ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);

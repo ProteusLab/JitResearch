@@ -72,10 +72,10 @@
     loadReg(rs1, insn.rs1());                                                  \
     loadReg(rs2, insn.rs2());                                                  \
     cc.cmp(rs1, rs2);                                                          \
-    cc.mov(rs1, isa::kWordSize);                                               \
-    cc.mov(rs2, insn.imm());                                                   \
+    cc.mov(rs1, (uint32_t)(curPC + isa::kWordSize));                           \
+    cc.mov(rs2, (uint32_t)(curPC + insn.imm()));                               \
     cc.cmov(COND, rs1, rs2);                                                   \
-    cc.add(getPC(), rs1);                                                      \
+    cc.mov(getPC(), rs1);                                                      \
     break;                                                                     \
   }
 
@@ -139,6 +139,8 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
   auto guest_addr = cc.newGpd();
   auto host_addr = cc.newUInt64();
+
+  isa::Addr curPC = info.startPC;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -265,26 +267,20 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kJAL: {
-      cc.mov(rd, getPC());
-      cc.add(rd, isa::kWordSize);
+      cc.mov(rd, (uint32_t)(curPC + isa::kWordSize));
       setDst(insn.rd(), rd);
-      cc.mov(pc, getPC());
-      cc.add(pc, insn.imm());
-      cc.mov(getPC(), pc);
+      cc.mov(getPC(), (uint32_t)(curPC + insn.imm()));
       break;
     }
 
     case kJALR: {
-      cc.mov(rd, getPC());
-      cc.add(rd, isa::kWordSize);
-
       loadReg(pc, insn.rs1());
       cc.add(pc, insn.imm());
       cc.and_(pc, ~0b1);
-
-      setDst(insn.rd(), rd);
-
       cc.mov(getPC(), pc);
+
+      cc.mov(rd, (uint32_t)(curPC + isa::kWordSize));
+      setDst(insn.rd(), rd);
       break;
     }
 
@@ -295,8 +291,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kAUIPC: {
-      cc.mov(rs1, getPC());
-      cc.add(rs1, insn.imm());
+      cc.mov(rs1, (uint32_t)(curPC + insn.imm()));
       setDst(insn.rd(), rs1);
       break;
     }
@@ -321,14 +316,16 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       throw std::invalid_argument{"Unexpected insn id"};
     }
 
-    if (!isa::changesPC(insn.opcode())) {
-      cc.mov(pc, getPC());
-      cc.add(pc, isa::kWordSize);
-      cc.mov(getPC(), pc);
-    }
+    curPC += isa::kWordSize;
   }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    cc.mov(getPC(), (uint32_t)curPC);
+  }
+
   cc.mov(rd, info.insns.size());
   cc.add(asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, icount)), rd);
+
   cc.endFunc();
   cc.finalize();
 

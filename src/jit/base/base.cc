@@ -31,6 +31,7 @@ void JitEngine::step(CPUState &cpu) {
     if (wasNew) [[unlikely]] {
       auto curAddr = bbIt->first;
       auto &bb = bbIt->second;
+      bb.startPC = curAddr;
 
       while (true) {
         auto bytes = cpu.memory->read<isa::Word>(curAddr);

@@ -24,6 +24,9 @@ struct InsnIRBuilder : public llvm::IRBuilder<> {
   llvm::Function *getFn() const { return GetInsertBlock()->getParent(); }
   llvm::Value *getCpuStatePtr() const { return getFn()->getArg(0); }
 
+  void setCurPC(isa::Addr pc) { m_curPC = pc; }
+  isa::Addr getCurPC() const { return m_curPC; }
+
   llvm::Value *getReg(std::size_t idx) {
     auto *cpuState = getCpuStatePtr();
     auto *regsArrTy = getCPUStateType()->getStructElementType(0);
@@ -45,17 +48,18 @@ struct InsnIRBuilder : public llvm::IRBuilder<> {
     llvm::Type *icountType = llvm::Type::getInt64Ty(Ctx);
     llvm::ArrayType *regsArrayType = llvm::ArrayType::get(wordType, 32);
 
-    return llvm::StructType::create(Ctx,
-                                    {regsArrayType, pcType, finishedType,
-                                     memoryPtrType, icountType, wordType,
-                                     memoryPtrType},
-                                    "CPUState", /*IsPacked=*/false);
+    return llvm::StructType::create(
+        Ctx,
+        {regsArrayType, pcType, finishedType, memoryPtrType, icountType,
+         wordType, memoryPtrType},
+        "CPUState", /*IsPacked=*/false);
   }
 
   void generateLoad(const isa::Instruction &insn);
   void generateStore(const isa::Instruction &insn);
 
-  void advancePC();
+private:
+  isa::Addr m_curPC{};
 };
 
 struct CpuStateMethInfo final {
@@ -208,15 +212,6 @@ void InsnIRBuilder::generateStore(const isa::Instruction &insn) {
   CreateStore(CreateLoad(valTy, rs2Ptr), storeAddr);
 }
 
-void InsnIRBuilder::advancePC() {
-  auto *cpuStructTy = getCPUStateType();
-  auto *cpuArg = getCpuStatePtr();
-  llvm::Value *pcPtr = CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = CreateLoad(getInt32Ty(), pcPtr);
-  llvm::Value *newPCVal = CreateAdd(pcVal, getInt32(4));
-  CreateStore(newPCVal, pcPtr);
-}
-
 void LUIbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   isa::Imm imm = insn.imm();
   isa::Operand rd = insn.rd();
@@ -248,8 +243,7 @@ void AUIPCbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *rdPtr = Data.CreateInBoundsGEP(
       regsArrTy, regsPtr, {Data.getInt32(0), Data.getInt32(rd)});
 
-  llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
   if (rd != 0) {
     Data.CreateStore(Data.CreateAdd(Data.getInt32(imm), pcVal), rdPtr);
   }
@@ -269,7 +263,7 @@ void JALbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
       regsArrTy, regsPtr, {Data.getInt32(0), Data.getInt32(rd)});
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
   Data.CreateStore(Data.CreateAdd(Data.getInt32(offset), pcVal), pcPtr);
   if (rd != 0) {
     Data.CreateStore(Data.CreateAdd(Data.getInt32(4), pcVal), rdPtr);
@@ -291,7 +285,7 @@ void JALRbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *rs1Val = Data.CreateLoad(Data.getInt32Ty(), rs1Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *rdPtr = Data.CreateInBoundsGEP(
       regsArrTy, regsPtr, {Data.getInt32(0), Data.getInt32(rd)});
@@ -323,7 +317,7 @@ void BEQbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpEQ(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -352,7 +346,7 @@ void BNEbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpNE(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -381,7 +375,7 @@ void BLTbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpSLT(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -410,7 +404,7 @@ void BGEbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpSGE(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -439,7 +433,7 @@ void BLTUbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpULT(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -468,7 +462,7 @@ void BGEUbuildIR(InsnIRBuilder &Data, const isa::Instruction &insn) {
   llvm::Value *reg2Val = Data.CreateLoad(Data.getInt32Ty(), reg2Ptr);
 
   llvm::Value *pcPtr = Data.CreateStructGEP(cpuStructTy, cpuArg, 1);
-  llvm::Value *pcVal = Data.CreateLoad(Data.getInt32Ty(), pcPtr);
+  llvm::Value *pcVal = Data.getInt32(Data.getCurPC());
 
   llvm::Value *cond = Data.CreateICmpUGE(reg1Val, reg2Val);
   llvm::Value *pcPlusoffset = Data.CreateAdd(pcVal, Data.getInt32(offset));
@@ -993,7 +987,8 @@ void EBREAKbuildIR(InsnIRBuilder & /*unused*/,
 
 } // namespace
 std::pair<std::unique_ptr<llvm::LLVMContext>, std::unique_ptr<llvm::Module>>
-translate(const std::string &name, const std::vector<isa::Instruction> &insns) {
+translate(const std::string &name, const std::vector<isa::Instruction> &insns,
+          isa::Addr startPC) {
   auto ctxPtr = std::make_unique<llvm::LLVMContext>();
   auto modulePtr = std::make_unique<llvm::Module>(name, *ctxPtr);
 
@@ -1008,18 +1003,25 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns) {
   llvm::BasicBlock *entryBB = llvm::BasicBlock::Create(*ctxPtr, "entry", fn);
   data.SetInsertPoint(entryBB);
 
+  isa::Addr curPC = startPC;
   for (const auto &insn : insns) {
+    data.setCurPC(curPC);
     data.build(insn);
-    if (!isa::changesPC(insn.opcode())) {
-      data.advancePC();
-    }
+    curPC += isa::kWordSize;
+  }
+
+  auto *cpuStructTy = data.getCPUStateType();
+  auto *cpuArg = data.getCpuStatePtr();
+
+  // Constant-PC folding: terminators write the outgoing PC themselves; for a
+  // sequential exit (ecall/ebreak/fence/empty) store the fall-through PC once.
+  if (insns.empty() || !isa::changesPC(insns.back().opcode())) {
+    llvm::Value *pcPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 1);
+    data.CreateStore(data.getInt32(static_cast<std::uint32_t>(curPC)), pcPtr);
   }
 
   auto *icountType =
       llvm::IntegerType::get(*ctxPtr, sizeofBits<std::uint64_t>());
-  auto *cpuStructTy = data.getCPUStateType();
-
-  auto *cpuArg = data.getCpuStatePtr();
 
   llvm::Value *icPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 4);
   auto *icVal = data.CreateLoad(icountType, icPtr);

@@ -54,6 +54,8 @@ JitFunction XByakJit::translate(const BBInfo &info) {
     return mem_type[base.cvt64() + addr.cvt64()];
   };
 
+  isa::Addr curPC = info.startPC;
+
   for (const auto &insn : info.insns) {
     auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
     auto getRs2 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs2())); };
@@ -87,8 +89,7 @@ JitFunction XByakJit::translate(const BBInfo &info) {
 #undef PROT_MAKE_IMPL
 
     case kAUIPC: {
-      mov(temp1, getPc());
-      add(temp1, insn.imm());
+      mov(temp1, static_cast<std::uint32_t>(curPC + insn.imm()));
       setRd(temp1);
       break;
     }
@@ -97,11 +98,11 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   case kB##Op: {                                                               \
     getRs1(temp1);                                                             \
     cmp(temp1, getReg(insn.rs2()));                                            \
-    mov(temp1, isa::kWordSize);                                                \
-    mov(temp2, insn.imm());                                                    \
+    mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));            \
+    mov(temp2, static_cast<std::uint32_t>(curPC + insn.imm()));                \
     cmov##cc(temp1, temp2);                                                    \
                                                                                \
-    add(getPc(), temp1);                                                       \
+    mov(getPc(), temp1);                                                       \
     break;                                                                     \
   }
       PROT_MAKE_IMPL(EQ, z)
@@ -126,22 +127,19 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       break;
     }
     case kJAL: {
-      mov(temp1, getPc());
-      add(temp1, isa::kWordSize);
+      mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));
       setRd(temp1);
 
-      add(getPc(), insn.imm());
+      mov(getPc(), static_cast<std::uint32_t>(curPC + insn.imm()));
       break;
     }
     case kJALR: {
-      mov(temp1, getPc());
-      add(temp1, isa::kWordSize);
-
       getRs1(temp2);
       add(temp2, insn.imm());
       and_(temp2, ~std::uint32_t{1});
       mov(getPc(), temp2);
 
+      mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));
       setRd(temp1);
       break;
     }
@@ -233,11 +231,15 @@ JitFunction XByakJit::translate(const BBInfo &info) {
     case kNumOpcodes:
       throw std::invalid_argument{"Unexpected insn id"};
     }
-    if (!isa::changesPC(insn.opcode())) {
-      add(getPc(), isa::kWordSize);
-    }
-    inc(qword[frame.p[0] + offsetof(CPUState, icount)]);
+    curPC += isa::kWordSize;
   }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    mov(getPc(), static_cast<std::uint32_t>(curPC));
+  }
+
+  add(qword[frame.p[0] + offsetof(CPUState, icount)],
+      static_cast<int>(info.insns.size()));
 
   frame.close();
   ready();

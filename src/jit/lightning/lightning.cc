@@ -114,6 +114,7 @@ JitFunction Lightning::translate(const BBInfo &info) {
     jit_stxi_i(offsetof(CPUState, pc), JIT_V0, JIT_R(reg));
   };
 
+  isa::Addr curPC = info.startPC;
   for (const auto &insn : info.insns) {
     // jit_note(insn.mnemonic().data(), i++);
     std::make_unsigned_t<jit_word_t> sextImm = insn.imm();
@@ -180,8 +181,7 @@ JitFunction Lightning::translate(const BBInfo &info) {
 #undef PROT_MAKE_SHIFT_IMPL
 #undef PROT_MAKE_IMPL
     case kAUIPC:
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, insn.imm());
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
       storeRd(0);
       break;
 #define PROT_MAKE_BR(OP, cond)                                                 \
@@ -189,12 +189,10 @@ JitFunction Lightning::translate(const BBInfo &info) {
     loadRS1(0, true);                                                          \
     loadRS2(1, true);                                                          \
     jit_##cond(JIT_R0, JIT_R0, JIT_R1);                                        \
-    jit_movi(JIT_R1, sizeof(isa::Word));                                       \
-    jit_movi(JIT_R2, insn.imm());                                              \
+    jit_movi(JIT_R1, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));   \
+    jit_movi(JIT_R2, static_cast<std::uint32_t>(curPC + insn.imm()));          \
     jit_movzr(JIT_R2, JIT_R1, JIT_R0);                                         \
-    loadPC(0);                                                                 \
-    jit_addr(JIT_R0, JIT_R0, JIT_R2);                                          \
-    storePC(0);                                                                \
+    storePC(2);                                                                \
     break;
 
       PROT_MAKE_BR(EQ, eqr)
@@ -215,15 +213,13 @@ JitFunction Lightning::translate(const BBInfo &info) {
       break;
 
     case kJAL:
-      loadPC(0);
-      jit_addi(JIT_R1, JIT_R0, sizeof(isa::Word));
+      jit_movi(JIT_R1, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
       storeRd(1);
-      jit_addi(JIT_R0, JIT_R0, insn.imm());
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
       storePC(0);
       break;
     case kJALR:
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, sizeof(isa::Word));
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
       loadRS1(1);
       storeRd(0);
       jit_addi(JIT_R1, JIT_R1, insn.imm());
@@ -310,11 +306,15 @@ JitFunction Lightning::translate(const BBInfo &info) {
     }
 
     if (!isa::changesPC(insn.opcode())) {
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, sizeof(isa::Word));
-      storePC(0);
+      curPC += isa::kWordSize;
     }
   }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC));
+    storePC(0);
+  }
+
   // update icount
   jit_ldxi_ui(JIT_R0, JIT_V0, offsetof(CPUState, icount));
   jit_addi(JIT_R0, JIT_R0, info.insns.size());
