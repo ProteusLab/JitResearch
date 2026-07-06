@@ -18,14 +18,11 @@ void JitEngine::step(CPUState &cpu) {
       cpu.dump(std::cout);
     }
 
-    // colllect bb
+    // collect bb
     const auto pc = cpu.getPC();
     if (m_translator) {
       if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
-        // Block chaining: a translated block may hand us its successor
-        // directly via cpu.next_tb, letting us stay out of the slow path.
-        // Backends without inline chaining simply leave next_tb == nullptr,
-        // which reproduces the original one-block-per-dispatch behaviour.
+        // Block chaining
         do {
           cpu.next_tb = nullptr;
           fn(cpu);

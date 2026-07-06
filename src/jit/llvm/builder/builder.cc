@@ -992,8 +992,8 @@ void EBREAKbuildIR(InsnIRBuilder & /*unused*/,
 // engine header into the low-level builder, same approach as getCPUStateType).
 constexpr std::uint32_t kTbGranularityLog2 = 2;
 constexpr std::uint32_t kTbMask = (1U << 22) - 1U;
-constexpr std::uint64_t kTbEntrySize = 16;   // sizeof(TbCacheEntry)
-constexpr std::uint64_t kTbGpaOffset = 8;    // offsetof(TbCacheEntry, gpa)
+constexpr std::uint64_t kTbEntrySize = 16; // sizeof(TbCacheEntry)
+constexpr std::uint64_t kTbGpaOffset = 8;  // offsetof(TbCacheEntry, gpa)
 
 void emitChainTail(InsnIRBuilder &data, bool hasEcall) {
   auto &ctx = data.getContext();
@@ -1061,9 +1061,13 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
   data.SetInsertPoint(entryBB);
 
   isa::Addr curPC = startPC;
+  bool hasEcall = false;
   for (const auto &insn : insns) {
     data.setCurPC(curPC);
     data.build(insn);
+    if (insn.opcode() == isa::Opcode::kECALL) {
+      hasEcall = true;
+    }
     curPC += isa::kWordSize;
   }
 
@@ -1088,13 +1092,6 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
   const bool lastIsJalr =
       !insns.empty() && insns.back().opcode() == isa::Opcode::kJALR;
   if (chainMode == ChainMode::MustTail && !lastIsJalr) {
-    bool hasEcall = false;
-    for (const auto &insn : insns) {
-      if (insn.opcode() == isa::Opcode::kECALL) {
-        hasEcall = true;
-        break;
-      }
-    }
     emitChainTail(data, hasEcall);
   } else {
     data.CreateRetVoid();

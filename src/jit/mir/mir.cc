@@ -227,6 +227,7 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                                getMemBase()));
 
   isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -323,6 +324,7 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     }
 
     case kECALL: {
+      hasEcall = true;
       MIR_var_t syscall_args[] = {{MIR_T_P, "state", 0}};
       MIR_item_t syscall_proto =
           MIR_new_proto_arr(ctx, "syscall_proto", 0, nullptr, 1, syscall_args);
@@ -380,13 +382,6 @@ JitFunction MIRJit::translate(const BBInfo &info) {
 
   const bool lastIsJalr =
       !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
-  bool hasEcall = false;
-  for (const auto &insn : info.insns) {
-    if (insn.opcode() == isa::Opcode::kECALL) {
-      hasEcall = true;
-      break;
-    }
-  }
 
   if (!lastIsJalr) {
     MIR_label_t end_label = MIR_new_label(ctx);

@@ -136,6 +136,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
 
   ir_ref pc = IR_UNUSED;
   isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
   ir_ref mem_base =
       ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, mem_base)));
 
@@ -272,6 +273,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       break;
     }
     case kECALL: {
+      hasEcall = true;
       ir_CALL_1(IR_VOID, m_func_proto_map["syscallHelper_func"], state_ptr);
       break;
     }
@@ -304,27 +306,12 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   icount = ir_ADD_U64(icount, ir_CONST_U32(info.insns.size()));
   ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, icount)), icount);
 
-  // Block chaining: probe the TB cache for the successor block inline and
-  // tail-call it, so a hot chain of blocks stays entirely in generated code
-  // instead of returning to the C++ dispatcher after every block.
-  //
-  // Blocks terminated by JALR (indirect jumps: returns, calls through a
-  // register, switch tables) have an unpredictable successor. Chaining them
-  // turns one well-predicted dispatcher call site into many polymorphic
-  // indirect tail-calls that mispredict, so we leave those to the dispatcher.
+  // Block chaining
   const bool lastIsJalr =
       !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
   if (lastIsJalr) {
     ir_RETURN(IR_UNUSED);
     return;
-  }
-
-  bool hasEcall = false;
-  for (const auto &insn : info.insns) {
-    if (insn.opcode() == isa::Opcode::kECALL) {
-      hasEcall = true;
-      break;
-    }
   }
 
   if (hasEcall) {
@@ -372,8 +359,6 @@ JitFunction IRJit::translate(const BBInfo &info) {
     throw std::runtime_error("IR JIT compilation failed");
   }
 
-  // ir_disasm("jit_func", nativeCode, codeSize, false, &ctx, stdout);
-  // std::cout << "----------------------------------------------\n";
   ir_free(&ctx);
 
   return reinterpret_cast<JitFunction>(nativeCode);
