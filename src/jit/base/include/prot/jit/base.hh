@@ -24,6 +24,30 @@ struct Translator {
   virtual ~Translator() = default;
 };
 
+// Helper class to store JITed code
+// Especially helpful for libraries w/out propper mem pool support
+class CodeHolder final {
+  struct Unmap {
+    std::size_t m_size = 0;
+
+  public:
+    explicit Unmap(std::size_t size) noexcept : m_size(size) {}
+
+    void operator()(void *ptr) const noexcept;
+  };
+
+public:
+  explicit CodeHolder(std::span<const std::byte> src);
+
+  template <typename T> [[nodiscard]] auto as() const {
+    return reinterpret_cast<T>(m_data.get());
+  }
+  void operator()(CPUState &state) const { as<JitFunction>()(state); }
+
+private:
+  std::unique_ptr<std::byte, Unmap> m_data;
+};
+
 class JitEngine final : public Interpreter {
 public:
   struct Config final {
@@ -37,7 +61,6 @@ public:
 
   void step(CPUState &cpu) override;
 
-protected:
   struct TbCache {
     static constexpr std::uint64_t kInvalidAddr{0};
     static constexpr std::uint64_t kSizeLog2{22};
@@ -71,6 +94,7 @@ protected:
   [[nodiscard]] const BBInfo *getBBInfo(isa::Addr pc) const;
 
 private:
+  JitFunction glueBlock(JitFunction originalFunc);
   void interpret(CPUState &cpu, BBInfo &info);
   void execute(CPUState &cpu, const isa::Instruction &insn) final {
     Interpreter::execute(cpu, insn);
@@ -81,30 +105,7 @@ private:
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;
   std::unordered_map<isa::Addr, BBInfo> m_cacheBB;
-};
-
-// Helper class to store JITed code
-// Especially helpful for libraries w/out propper mem pool support
-class CodeHolder final {
-  struct Unmap {
-    std::size_t m_size = 0;
-
-  public:
-    explicit Unmap(std::size_t size) noexcept : m_size(size) {}
-
-    void operator()(void *ptr) const noexcept;
-  };
-
-public:
-  explicit CodeHolder(std::span<const std::byte> src);
-
-  template <typename T> [[nodiscard]] auto as() const {
-    return reinterpret_cast<T>(m_data.get());
-  }
-  void operator()(CPUState &state) const { as<JitFunction>()(state); }
-
-private:
-  std::unique_ptr<std::byte, Unmap> m_data;
+  std::vector<CodeHolder> m_glueBlocks;
 };
 } // namespace prot::engine
 
