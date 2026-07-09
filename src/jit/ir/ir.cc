@@ -299,8 +299,6 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     pc = ir_CONST_U32((uint32_t)curPC);
   }
 
-  ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
-
   ir_ref icount =
       ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, icount)));
   icount = ir_ADD_U64(icount, ir_CONST_U32(info.insns.size()));
@@ -310,6 +308,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   const bool lastIsJalr =
       !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
   if (lastIsJalr) {
+    ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
     ir_RETURN(IR_UNUSED);
     return;
   }
@@ -320,6 +319,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
         ir_LOAD_U8(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, finished)));
     ir_ref if_fin = ir_IF(fin);
     ir_IF_TRUE(if_fin);
+    ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
     ir_RETURN(IR_UNUSED);
     ir_IF_FALSE(if_fin);
   }
@@ -340,6 +340,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   ir_IF_TRUE(if_hit);
   ir_TAILCALL_1(IR_VOID, next, state_ptr);
   ir_IF_FALSE(if_hit);
+  ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
   ir_RETURN(IR_UNUSED);
 }
 
