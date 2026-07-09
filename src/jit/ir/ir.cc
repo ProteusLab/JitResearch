@@ -351,7 +351,9 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
 JitFunction IRJit::translate(const BBInfo &info) {
   ir_ctx ctx;
 
-  ir_init(&ctx, IR_FUNCTION | IR_OPT_FOLDING | IR_OPT_CFG | IR_OPT_CODEGEN,
+  ir_init(&ctx,
+          IR_FUNCTION | IR_OPT_FOLDING | IR_OPT_CFG | IR_OPT_CODEGEN |
+              IR_OPT_MEM2SSA,
           kConstsLimit, kInsnsLimit);
 
   registerHelpers(&ctx);
