@@ -52,9 +52,10 @@ namespace {
                                  MIR_new_reg_op(ctx, rs2_reg)));               \
     MIR_append_insn(                                                           \
         ctx, func_item,                                                        \
-        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),                \
-                     MIR_new_int_op(                                           \
-                         ctx, (int64_t)(uint32_t)(curPC + isa::kWordSize))));  \
+        MIR_new_insn(                                                          \
+            ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),                         \
+            MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(    \
+                                    curPC + isa::kWordSize)))));               \
                                                                                \
     MIR_append_insn(                                                           \
         ctx, func_item,                                                        \
@@ -66,7 +67,8 @@ namespace {
         ctx, func_item,                                                        \
         MIR_new_insn(                                                          \
             ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),                         \
-            MIR_new_int_op(ctx, (int64_t)(uint32_t)(curPC + insn.imm()))));    \
+            MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(    \
+                                    curPC + insn.imm())))));                   \
     MIR_append_insn(ctx, func_item, end_label);                                \
     break;                                                                     \
   }
@@ -270,16 +272,18 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     case kJAL: {
       MIR_append_insn(
           ctx, func_item,
-          MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
-                       MIR_new_int_op(
-                           ctx, (int64_t)(uint32_t)(curPC + isa::kWordSize))));
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + isa::kWordSize)))));
       setDst(insn.rd(), MIR_new_reg_op(ctx, rd_reg));
 
       MIR_append_insn(
           ctx, func_item,
           MIR_new_insn(
               ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
-              MIR_new_int_op(ctx, (int64_t)(uint32_t)(curPC + insn.imm()))));
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + insn.imm())))));
       break;
     }
 
@@ -288,9 +292,10 @@ JitFunction MIRJit::translate(const BBInfo &info) {
 
       MIR_append_insn(
           ctx, func_item,
-          MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
-                       MIR_new_int_op(
-                           ctx, (int64_t)(uint32_t)(curPC + isa::kWordSize))));
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + isa::kWordSize)))));
 
       MIR_append_insn(ctx, func_item,
                       MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),
@@ -318,7 +323,8 @@ JitFunction MIRJit::translate(const BBInfo &info) {
           ctx, func_item,
           MIR_new_insn(
               ctx, MIR_MOV, MIR_new_reg_op(ctx, rs1_reg),
-              MIR_new_int_op(ctx, (int64_t)(uint32_t)(curPC + insn.imm()))));
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + insn.imm())))));
       setDst(insn.rd(), MIR_new_reg_op(ctx, rs1_reg));
       break;
     }
@@ -359,7 +365,8 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     MIR_append_insn(
         ctx, func_item,
         MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
-                     MIR_new_int_op(ctx, (int64_t)(uint32_t)curPC)));
+                     MIR_new_int_op(ctx, static_cast<int64_t>(
+                                             static_cast<uint32_t>(curPC)))));
   }
 
   MIR_append_insn(
@@ -405,10 +412,11 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                     MIR_new_insn(ctx, MIR_URSH, MIR_new_reg_op(ctx, ch_off),
                                  MIR_new_reg_op(ctx, ch_pc),
                                  MIR_new_int_op(ctx, kTbCacheGranularityLog2)));
-    MIR_append_insn(ctx, func_item,
-                    MIR_new_insn(ctx, MIR_AND, MIR_new_reg_op(ctx, ch_off),
-                                 MIR_new_reg_op(ctx, ch_off),
-                                 MIR_new_int_op(ctx, (int64_t)kTbCacheMask)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_AND, MIR_new_reg_op(ctx, ch_off),
+                     MIR_new_reg_op(ctx, ch_off),
+                     MIR_new_int_op(ctx, static_cast<int64_t>(kTbCacheMask))));
     MIR_append_insn(ctx, func_item,
                     MIR_new_insn(ctx, MIR_LSH, MIR_new_reg_op(ctx, ch_off),
                                  MIR_new_reg_op(ctx, ch_off),

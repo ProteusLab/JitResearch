@@ -72,8 +72,8 @@
     loadReg(rs1, insn.rs1());                                                  \
     loadReg(rs2, insn.rs2());                                                  \
     cc.cmp(rs1, rs2);                                                          \
-    cc.mov(rs1, (uint32_t)(curPC + isa::kWordSize));                           \
-    cc.mov(rs2, (uint32_t)(curPC + insn.imm()));                               \
+    cc.mov(rs1, static_cast<uint32_t>(curPC + isa::kWordSize));                \
+    cc.mov(rs2, static_cast<uint32_t>(curPC + insn.imm()));                    \
     cc.cmov(COND, rs1, rs2);                                                   \
     cc.mov(getPC(), rs1);                                                      \
     break;                                                                     \
@@ -268,9 +268,9 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kJAL: {
-      cc.mov(rd, (uint32_t)(curPC + isa::kWordSize));
+      cc.mov(rd, static_cast<uint32_t>(curPC + isa::kWordSize));
       setDst(insn.rd(), rd);
-      cc.mov(getPC(), (uint32_t)(curPC + insn.imm()));
+      cc.mov(getPC(), static_cast<uint32_t>(curPC + insn.imm()));
       break;
     }
 
@@ -280,7 +280,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       cc.and_(pc, ~0b1);
       cc.mov(getPC(), pc);
 
-      cc.mov(rd, (uint32_t)(curPC + isa::kWordSize));
+      cc.mov(rd, static_cast<uint32_t>(curPC + isa::kWordSize));
       setDst(insn.rd(), rd);
       break;
     }
@@ -292,7 +292,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kAUIPC: {
-      cc.mov(rs1, (uint32_t)(curPC + insn.imm()));
+      cc.mov(rs1, static_cast<uint32_t>(curPC + insn.imm()));
       setDst(insn.rd(), rs1);
       break;
     }
@@ -322,7 +322,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   }
 
   if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
-    cc.mov(getPC(), (uint32_t)curPC);
+    cc.mov(getPC(), static_cast<uint32_t>(curPC));
   }
 
   cc.mov(rd, info.insns.size());
@@ -343,8 +343,8 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
     auto entry = cc.newUInt64();
     cc.mov(entry.r32(), cpc);
-    cc.shr(entry.r32(), (uint32_t)kTbCacheGranularityLog2);
-    cc.and_(entry.r32(), (uint32_t)kTbCacheMask);
+    cc.shr(entry.r32(), static_cast<uint32_t>(kTbCacheGranularityLog2));
+    cc.and_(entry.r32(), static_cast<uint32_t>(kTbCacheMask));
     cc.shl(entry, 4);
     cc.add(entry, asmjit::x86::qword_ptr(state_ptr,
                                          offsetof(CPUState, tb_cache_base)));

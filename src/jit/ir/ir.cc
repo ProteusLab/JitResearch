@@ -92,9 +92,10 @@ namespace {
   case k##OP: {                                                                \
     ir_ref rs1 = loadReg(insn.rs1());                                          \
     ir_ref rs2 = loadReg(insn.rs2());                                          \
-    pc = ir_COND_U32(COND(rs1, rs2),                                           \
-                     ir_CONST_U32((uint32_t)(curPC + insn.imm())),             \
-                     ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));        \
+    pc = ir_COND_U32(                                                          \
+        COND(rs1, rs2),                                                        \
+        ir_CONST_U32(static_cast<uint32_t>(curPC + insn.imm())),               \
+        ir_CONST_U32(static_cast<uint32_t>(curPC + isa::kWordSize)));          \
     break;                                                                     \
   }
 
@@ -252,12 +253,14 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     }
 
     case kJAL: {
-      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));
-      pc = ir_CONST_U32((uint32_t)(curPC + insn.imm()));
+      setDst(insn.rd(),
+             ir_CONST_U32(static_cast<uint32_t>(curPC + isa::kWordSize)));
+      pc = ir_CONST_U32(static_cast<uint32_t>(curPC + insn.imm()));
       break;
     }
     case kJALR: {
-      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + isa::kWordSize)));
+      setDst(insn.rd(),
+             ir_CONST_U32(static_cast<uint32_t>(curPC + isa::kWordSize)));
       ir_ref rs1 = loadReg(insn.rs1());
       ir_ref target = ir_ADD_U32(rs1, ir_CONST_I32(insn.imm()));
       pc = ir_AND_U32(target, ir_CONST_U32(~1U));
@@ -269,7 +272,8 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       break;
     }
     case kAUIPC: {
-      setDst(insn.rd(), ir_CONST_U32((uint32_t)(curPC + insn.imm())));
+      setDst(insn.rd(),
+             ir_CONST_U32(static_cast<uint32_t>(curPC + insn.imm())));
       break;
     }
     case kECALL: {
@@ -296,7 +300,7 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   }
 
   if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
-    pc = ir_CONST_U32((uint32_t)curPC);
+    pc = ir_CONST_U32(static_cast<uint32_t>(curPC));
   }
 
   ir_ref icount =
