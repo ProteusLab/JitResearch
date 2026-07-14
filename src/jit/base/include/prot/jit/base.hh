@@ -93,6 +93,9 @@ private:
   }
 
 private:
+  int m_perfExec{-1};
+  int m_perfTrans{-1};
+  int m_perfInterp{-1};
   std::uintmax_t m_execTicks{};
   std::uintmax_t m_transTicks{};
   std::uintmax_t m_interpTicks{};

@@ -1,33 +1,48 @@
 #include "prot/jit/base.hh"
 
-#include <fmt/core.h>
-#include <fmt/ostream.h>
-#include <fmt/std.h>
-
 #include <cassert>
 #include <filesystem>
 #include <iostream>
 
-extern "C" {
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <sys/mman.h>
-#include <x86intrin.h>
-}
+#include <unistd.h>
+
+#include <fmt/core.h>
+#include <fmt/ostream.h>
+#include <fmt/std.h>
 
 namespace prot::engine {
 namespace {
-template <typename Func, typename... Args>
-decltype(auto) measure(std::uintmax_t &dst, Func &&func, Args &&...args) {
-  struct Timer {
-    std::uintmax_t &dst;
-    std::uintmax_t beg{};
-    Timer(std::uintmax_t &dst) : dst(dst), beg(__rdtsc()) {}
-    ~Timer() { dst += __rdtsc() - beg; }
-  } timer{dst};
-  return std::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+
+int openPerfCounter() {
+  struct perf_event_attr attr = {};
+  attr.type = PERF_TYPE_HARDWARE;
+  attr.config = PERF_COUNT_HW_CPU_CYCLES;
+  attr.size = sizeof(attr);
+  attr.pinned = 1;
+  attr.exclude_kernel = 1;
+  attr.disabled = 1;
+  return static_cast<int>(syscall(__NR_perf_event_open, &attr, 0, -1, -1, 0));
 }
+
+std::uintmax_t readPerfCounter(int fd) {
+  std::uint64_t val = 0;
+  if (fd >= 0)
+    ::read(fd, &val, sizeof(val));
+  return val;
+}
+
 } // namespace
 
 void JitEngine::step(CPUState &cpu) {
+  if (m_perfExec < 0) {
+    m_perfExec = openPerfCounter();
+    m_perfTrans = openPerfCounter();
+    m_perfInterp = openPerfCounter();
+  }
   cpu.tb_cache_base = m_tbCache.baseAddr();
   while (!cpu.finished) [[likely]] {
     if (m_config.enableDump) {
@@ -39,11 +54,15 @@ void JitEngine::step(CPUState &cpu) {
     if (m_translator) {
       if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
         // Block chaining
+        if (m_perfExec >= 0)
+          ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
         do {
           cpu.next_tb = nullptr;
-          measure(m_execTicks, fn, cpu);
+          fn(cpu);
           fn = reinterpret_cast<JitFunction>(const_cast<void *>(cpu.next_tb));
         } while (fn != nullptr);
+        if (m_perfExec >= 0)
+          ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
         continue;
       }
     }
@@ -72,19 +91,30 @@ void JitEngine::step(CPUState &cpu) {
     }
     if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
         [[likely]] {
-      auto code = measure(m_transTicks, &Translator::translate, m_translator,
-                          bbIt->second);
+      if (m_perfTrans >= 0)
+        ioctl(m_perfTrans, PERF_EVENT_IOC_ENABLE, 0);
+      auto code = m_translator->translate(bbIt->second);
+      if (m_perfTrans >= 0)
+        ioctl(m_perfTrans, PERF_EVENT_IOC_DISABLE, 0);
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
       }
 
-      measure(m_execTicks, code, cpu);
+      if (m_perfExec >= 0)
+        ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
+      code(cpu);
+      if (m_perfExec >= 0)
+        ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
       m_tbCache.insert(pc, code);
       continue;
     }
 
-    measure(m_interpTicks, &JitEngine::interpret, this, cpu, bbIt->second);
+    if (m_perfInterp >= 0)
+      ioctl(m_perfInterp, PERF_EVENT_IOC_ENABLE, 0);
+    interpret(cpu, bbIt->second);
+    if (m_perfInterp >= 0)
+      ioctl(m_perfInterp, PERF_EVENT_IOC_DISABLE, 0);
   }
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
@@ -106,6 +136,14 @@ auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
 }
 
 JitEngine::~JitEngine() {
+  m_execTicks = readPerfCounter(m_perfExec);
+  m_transTicks = readPerfCounter(m_perfTrans);
+  m_interpTicks = readPerfCounter(m_perfInterp);
+  if (m_perfExec >= 0) {
+    close(m_perfExec);
+    close(m_perfTrans);
+    close(m_perfInterp);
+  }
   std::filesystem::path jsonPath =
       std::filesystem::current_path() / m_config.statsFile;
   std::ofstream json(jsonPath);
