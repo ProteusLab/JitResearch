@@ -43,6 +43,8 @@ void JitEngine::step(CPUState &cpu) {
     m_perfTrans = openPerfCounter();
     m_perfInterp = openPerfCounter();
   }
+  if (m_perfExec >= 0)
+    ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
   cpu.tb_cache_base = m_tbCache.baseAddr();
   while (!cpu.finished) [[likely]] {
     if (m_config.enableDump) {
@@ -54,15 +56,11 @@ void JitEngine::step(CPUState &cpu) {
     if (m_translator) {
       if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
         // Block chaining
-        if (m_perfExec >= 0)
-          ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
         do {
           cpu.next_tb = nullptr;
           fn(cpu);
           fn = reinterpret_cast<JitFunction>(const_cast<void *>(cpu.next_tb));
         } while (fn != nullptr);
-        if (m_perfExec >= 0)
-          ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
         continue;
       }
     }
@@ -91,31 +89,37 @@ void JitEngine::step(CPUState &cpu) {
     }
     if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
         [[likely]] {
+      if (m_perfExec >= 0)
+        ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
       if (m_perfTrans >= 0)
         ioctl(m_perfTrans, PERF_EVENT_IOC_ENABLE, 0);
       auto code = m_translator->translate(bbIt->second);
       if (m_perfTrans >= 0)
         ioctl(m_perfTrans, PERF_EVENT_IOC_DISABLE, 0);
+      if (m_perfExec >= 0)
+        ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
       }
 
-      if (m_perfExec >= 0)
-        ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
       code(cpu);
-      if (m_perfExec >= 0)
-        ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
       m_tbCache.insert(pc, code);
       continue;
     }
 
+    if (m_perfExec >= 0)
+      ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
     if (m_perfInterp >= 0)
       ioctl(m_perfInterp, PERF_EVENT_IOC_ENABLE, 0);
     interpret(cpu, bbIt->second);
     if (m_perfInterp >= 0)
       ioctl(m_perfInterp, PERF_EVENT_IOC_DISABLE, 0);
+    if (m_perfExec >= 0)
+      ioctl(m_perfExec, PERF_EVENT_IOC_ENABLE, 0);
   }
+  if (m_perfExec >= 0)
+    ioctl(m_perfExec, PERF_EVENT_IOC_DISABLE, 0);
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
   for (const auto &insn : info.insns) {
