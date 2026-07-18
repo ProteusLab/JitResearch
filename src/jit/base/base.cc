@@ -39,11 +39,13 @@ void JitEngine::step(CPUState &cpu) {
     if (m_translator) {
       if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
         // Block chaining
+        auto __t0 = __rdtsc();
         do {
           cpu.next_tb = nullptr;
-          measure(m_execTicks, fn, cpu);
+          fn(cpu);
           fn = reinterpret_cast<JitFunction>(const_cast<void *>(cpu.next_tb));
         } while (fn != nullptr);
+        m_execTicks += __rdtsc() - __t0;
         continue;
       }
     }
@@ -74,6 +76,7 @@ void JitEngine::step(CPUState &cpu) {
         [[likely]] {
       auto code = measure(m_transTicks, &Translator::translate, m_translator,
                           bbIt->second);
+      m_translatedInstrs += bbIt->second.insns.size();
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
@@ -86,6 +89,7 @@ void JitEngine::step(CPUState &cpu) {
 
     measure(m_interpTicks, &JitEngine::interpret, this, cpu, bbIt->second);
   }
+  m_sessionIcount = cpu.icount;
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
   for (const auto &insn : info.insns) {
@@ -113,10 +117,13 @@ JitEngine::~JitEngine() {
 {{
     "exec_ticks": {},
     "translate_ticks": {},
-    "interp_ticks": {}
+    "interp_ticks": {},
+    "icount": {},
+    "translated_instrs": {}
 }}
 )",
-               m_execTicks, m_transTicks, m_interpTicks);
+               m_execTicks, m_transTicks, m_interpTicks, m_sessionIcount,
+               m_translatedInstrs);
   if (json) {
     fmt::println(std::cerr, "Stats were written to file: {}", jsonPath);
   }

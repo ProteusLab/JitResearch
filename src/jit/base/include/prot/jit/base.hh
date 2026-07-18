@@ -2,9 +2,9 @@
 #define INCLUDE_JIT_BASE_HH_INCLUDED
 
 #include "prot/interpreter.hh"
+#include <filesystem>
 #include <unordered_map>
 #include <vector>
-#include <filesystem>
 
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
@@ -96,6 +96,9 @@ private:
   std::uintmax_t m_execTicks{};
   std::uintmax_t m_transTicks{};
   std::uintmax_t m_interpTicks{};
+  std::uintmax_t m_sessionIcount{};
+  std::uintmax_t m_translatedInstrs{};
+
   Config m_config{};
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;
