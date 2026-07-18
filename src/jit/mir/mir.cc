@@ -50,10 +50,12 @@ namespace {
                     MIR_new_insn(ctx, COND, MIR_new_label_op(ctx, true_label), \
                                  MIR_new_reg_op(ctx, rs1_reg),                 \
                                  MIR_new_reg_op(ctx, rs2_reg)));               \
-    MIR_append_insn(ctx, func_item,                                            \
-                    MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),   \
-                                 MIR_new_reg_op(ctx, pc_reg),                  \
-                                 MIR_new_int_op(ctx, isa::kWordSize)));        \
+    MIR_append_insn(                                                           \
+        ctx, func_item,                                                        \
+        MIR_new_insn(                                                          \
+            ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),                         \
+            MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(    \
+                                    curPC + isa::kWordSize)))));               \
                                                                                \
     MIR_append_insn(                                                           \
         ctx, func_item,                                                        \
@@ -61,84 +63,69 @@ namespace {
                                                                                \
     MIR_append_insn(ctx, func_item, true_label);                               \
                                                                                \
-    MIR_append_insn(ctx, func_item,                                            \
-                    MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),   \
-                                 MIR_new_reg_op(ctx, pc_reg),                  \
-                                 MIR_new_int_op(ctx, insn.imm())));            \
+    MIR_append_insn(                                                           \
+        ctx, func_item,                                                        \
+        MIR_new_insn(                                                          \
+            ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),                         \
+            MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(    \
+                                    curPC + insn.imm())))));                   \
     MIR_append_insn(ctx, func_item, end_label);                                \
     break;                                                                     \
   }
 
-#define PROT_MIR_S_OP(OP, FUNC, FUNC_PROTO, DATA_TYPE)                         \
+#define PROT_MIR_LOAD(OP, MEM_TYPE, EXT_INSN)                                  \
   case k##OP: {                                                                \
     loadReg(rs1_reg, insn.rs1());                                              \
-                                                                               \
     MIR_append_insn(ctx, func_item,                                            \
                     MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rs1_reg),  \
                                  MIR_new_reg_op(ctx, rs1_reg),                 \
                                  MIR_new_int_op(ctx, insn.imm())));            \
-    MIR_append_insn(ctx, func_item,                                            \
-                    MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rs2_reg),   \
-                                 getReg(insn.rs2())));                         \
-    MIR_item_t store_proto;                                                    \
-    auto find_res = m_func_proto.find(FUNC_PROTO);                             \
-    if (find_res == m_func_proto.end()) {                                      \
-      MIR_var_t store_args[] = {{MIR_T_P, "state", 0},                         \
-                                {MIR_T_U32, "addr", 0},                        \
-                                {DATA_TYPE, "val", 0}};                        \
-      store_proto =                                                            \
-          MIR_new_proto_arr(ctx, FUNC_PROTO, 0, nullptr, 3, store_args);       \
-      m_func_proto[FUNC_PROTO] = store_proto;                                  \
-    } else                                                                     \
-      store_proto = find_res->second;                                          \
+    getHostAddr(host_addr, rs1_reg);                                           \
     MIR_append_insn(                                                           \
         ctx, func_item,                                                        \
-        MIR_new_call_insn(ctx, 5, MIR_new_ref_op(ctx, store_proto),            \
-                          MIR_new_ref_op(ctx, MIR_new_import(ctx, FUNC)),      \
-                          MIR_new_reg_op(ctx, state_ptr),                      \
-                          MIR_new_reg_op(ctx, rs1_reg),                        \
-                          MIR_new_reg_op(ctx, rs2_reg)));                      \
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, val_reg),               \
+                     MIR_new_mem_op(ctx, MEM_TYPE, 0, host_addr, 0, 0)));      \
+    MIR_append_insn(ctx, func_item,                                            \
+                    MIR_new_insn(ctx, EXT_INSN, MIR_new_reg_op(ctx, ext_reg),  \
+                                 MIR_new_reg_op(ctx, val_reg)));               \
+    setDst(insn.rd(), MIR_new_reg_op(ctx, ext_reg));                           \
     break;                                                                     \
   }
 
-#define PROT_MIR_L_OP(OP, FUNC, FUNC_PROTO, DATA_TYPE)                         \
+#define PROT_MIR_LOAD_NOEXT(OP, MEM_TYPE)                                      \
   case k##OP: {                                                                \
     loadReg(rs1_reg, insn.rs1());                                              \
-                                                                               \
     MIR_append_insn(ctx, func_item,                                            \
                     MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rs1_reg),  \
                                  MIR_new_reg_op(ctx, rs1_reg),                 \
                                  MIR_new_int_op(ctx, insn.imm())));            \
-    MIR_item_t load_proto;                                                     \
-    auto find_res = m_func_proto.find(FUNC_PROTO);                             \
-    if (find_res == m_func_proto.end()) {                                      \
-      MIR_type_t load_res_types[] = {DATA_TYPE};                               \
-      MIR_var_t load_args[] = {{MIR_T_P, "state", 0}, {MIR_T_U32, "addr", 0}}; \
-      load_proto =                                                             \
-          MIR_new_proto_arr(ctx, FUNC_PROTO, 1, load_res_types, 2, load_args); \
-      m_func_proto[FUNC_PROTO] = load_proto;                                   \
-    } else                                                                     \
-      load_proto = find_res->second;                                           \
+    getHostAddr(host_addr, rs1_reg);                                           \
     MIR_append_insn(                                                           \
         ctx, func_item,                                                        \
-        MIR_new_call_insn(ctx, 5, MIR_new_ref_op(ctx, load_proto),             \
-                          MIR_new_ref_op(ctx, MIR_new_import(ctx, FUNC)),      \
-                          MIR_new_reg_op(ctx, rd_reg),                         \
-                          MIR_new_reg_op(ctx, state_ptr),                      \
-                          MIR_new_reg_op(ctx, rs1_reg)));                      \
-    setDst(insn.rd(), MIR_new_reg_op(ctx, rd_reg));                            \
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, val_reg),               \
+                     MIR_new_mem_op(ctx, MEM_TYPE, 0, host_addr, 0, 0)));      \
+    setDst(insn.rd(), MIR_new_reg_op(ctx, val_reg));                           \
+    break;                                                                     \
+  }
+
+#define PROT_MIR_STORE(OP, MEM_TYPE)                                           \
+  case k##OP: {                                                                \
+    loadReg(rs1_reg, insn.rs1());                                              \
+    MIR_append_insn(ctx, func_item,                                            \
+                    MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rs1_reg),  \
+                                 MIR_new_reg_op(ctx, rs1_reg),                 \
+                                 MIR_new_int_op(ctx, insn.imm())));            \
+    getHostAddr(host_addr, rs1_reg);                                           \
+    loadReg(rs2_reg, insn.rs2());                                              \
+    MIR_append_insn(                                                           \
+        ctx, func_item,                                                        \
+        MIR_new_insn(ctx, MIR_MOV,                                             \
+                     MIR_new_mem_op(ctx, MEM_TYPE, 0, host_addr, 0, 0),        \
+                     MIR_new_reg_op(ctx, rs2_reg)));                           \
     break;                                                                     \
   }
 
 using JitFunction = void (*)(CPUState &);
-
-template <typename T> void storeHelper(CPUState &state, isa::Addr addr, T val) {
-  state.memory->write(addr, val);
-}
-
-template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
-  return state.memory->read<T>(addr);
-}
 
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
@@ -146,22 +133,6 @@ class MIRJit : public Translator {
 public:
   MIRJit() : ctx(MIR_init()) {
     MIR_gen_init(ctx);
-
-    MIR_load_external(ctx, "loadHelperWord",
-                      reinterpret_cast<void *>(loadHelper<isa::Word>));
-    MIR_load_external(ctx, "storeHelperWord",
-                      reinterpret_cast<void *>(storeHelper<isa::Word>));
-
-    MIR_load_external(ctx, "loadHelperHalf",
-                      reinterpret_cast<void *>(loadHelper<isa::Half>));
-    MIR_load_external(ctx, "storeHelperHalf",
-                      reinterpret_cast<void *>(storeHelper<isa::Half>));
-
-    MIR_load_external(ctx, "loadHelperByte",
-                      reinterpret_cast<void *>(loadHelper<isa::Byte>));
-    MIR_load_external(ctx, "storeHelperByte",
-                      reinterpret_cast<void *>(storeHelper<isa::Byte>));
-
     MIR_load_external(ctx, "syscallHelper",
                       reinterpret_cast<void *>(syscallHelper));
   }
@@ -175,7 +146,6 @@ private:
   [[nodiscard]] JitFunction translate(const BBInfo &info) override;
 
   MIR_context_t ctx;
-  std::unordered_map<std::string, MIR_item_t> m_func_proto{};
 };
 
 JitFunction MIRJit::translate(const BBInfo &info) {
@@ -192,6 +162,21 @@ JitFunction MIRJit::translate(const BBInfo &info) {
   MIR_reg_t rs1_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "rs1");
   MIR_reg_t rs2_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "rs2");
   MIR_reg_t rd_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "rd");
+
+  MIR_reg_t mem_base_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "mem_base");
+
+  MIR_reg_t host_addr = MIR_new_func_reg(ctx, func, MIR_T_I64, "host_addr");
+
+  MIR_reg_t val_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "val");
+  MIR_reg_t ext_reg = MIR_new_func_reg(ctx, func, MIR_T_I64, "ext");
+
+  MIR_reg_t ch_pc = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_pc");
+  MIR_reg_t ch_off = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_off");
+  MIR_reg_t ch_base = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_base");
+  MIR_reg_t ch_entry = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_entry");
+  MIR_reg_t ch_gpa = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_gpa");
+  MIR_reg_t ch_fn = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_fn");
+  MIR_reg_t ch_fin = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_fin");
 
   auto getReg = [this, state_ptr](auto regId) {
     return MIR_new_mem_op(ctx, MIR_T_U32,
@@ -215,6 +200,10 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                           0);
   };
 
+  auto getMemBase = [this, state_ptr]() {
+    return MIR_new_mem_op(ctx, MIR_T_P, offsetof(CPUState, mem_base), state_ptr,
+                          0, 0);
+  };
   auto setDst = [this, func_item, getReg](auto dstId, auto dst_op) {
     if (dstId != 0) {
       MIR_append_insn(ctx, func_item,
@@ -222,9 +211,25 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     }
   };
 
-  MIR_append_insn(
-      ctx, func_item,
-      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg), getPC()));
+  auto getHostAddr = [this, func_item, mem_base_reg](auto host_addr,
+                                                     auto guest_addr_reg) {
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_UEXT32,
+                                 MIR_new_reg_op(ctx, host_addr),
+                                 MIR_new_reg_op(ctx, guest_addr_reg)));
+
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_ADD, MIR_new_reg_op(ctx, host_addr),
+                                 MIR_new_reg_op(ctx, mem_base_reg),
+                                 MIR_new_reg_op(ctx, host_addr)));
+  };
+
+  MIR_append_insn(ctx, func_item,
+                  MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, mem_base_reg),
+                               getMemBase()));
+
+  isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -254,46 +259,43 @@ JitFunction MIRJit::translate(const BBInfo &info) {
       PROT_MIR_B_COND_OP(BLTU, MIR_UBLTS)
       PROT_MIR_B_COND_OP(BGEU, MIR_UBGES)
 
-      // PROT_MIR_L_OP
-      PROT_MIR_L_OP(LW, "loadHelperWord", "loadHelperWordProto", MIR_T_U32)
-      PROT_MIR_L_OP(LH, "loadHelperHalf", "loadHelperHalfProto", MIR_T_I16)
-      PROT_MIR_L_OP(LB, "loadHelperByte", "loadHelperByteProto", MIR_T_I8)
+      PROT_MIR_LOAD_NOEXT(LW, MIR_T_U32)
+      PROT_MIR_LOAD(LH, MIR_T_I16, MIR_EXT16)
+      PROT_MIR_LOAD(LHU, MIR_T_U16, MIR_UEXT16)
+      PROT_MIR_LOAD(LB, MIR_T_I8, MIR_EXT8)
+      PROT_MIR_LOAD(LBU, MIR_T_U8, MIR_UEXT8)
 
-      PROT_MIR_L_OP(LHU, "loadHelperHalf", "loadHelperUHalfProto", MIR_T_U16)
-      PROT_MIR_L_OP(LBU, "loadHelperByte", "loadHelperUByteProto", MIR_T_U8)
-
-      // PROT_MIR_S_OP
-      PROT_MIR_S_OP(SW, "storeHelperWord", "storeHelperWordProto", MIR_T_U32)
-      PROT_MIR_S_OP(SH, "storeHelperHalf", "storeHelperHalfProto", MIR_T_I16)
-      PROT_MIR_S_OP(SB, "storeHelperByte", "storeHelperByteProto", MIR_T_I8)
+      PROT_MIR_STORE(SW, MIR_T_U32)
+      PROT_MIR_STORE(SH, MIR_T_U16)
+      PROT_MIR_STORE(SB, MIR_T_U8)
 
     case kJAL: {
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_reg_op(ctx, pc_reg)));
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_int_op(ctx, isa::kWordSize)));
+      MIR_append_insn(
+          ctx, func_item,
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + isa::kWordSize)))));
       setDst(insn.rd(), MIR_new_reg_op(ctx, rd_reg));
 
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),
-                                   MIR_new_reg_op(ctx, pc_reg),
-                                   MIR_new_int_op(ctx, insn.imm())));
+      MIR_append_insn(
+          ctx, func_item,
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + insn.imm())))));
       break;
     }
 
     case kJALR: {
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_reg_op(ctx, pc_reg)));
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_reg_op(ctx, rd_reg),
-                                   MIR_new_int_op(ctx, isa::kWordSize)));
-
       loadReg(rs1_reg, insn.rs1());
+
+      MIR_append_insn(
+          ctx, func_item,
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, rd_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + isa::kWordSize)))));
 
       MIR_append_insn(ctx, func_item,
                       MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),
@@ -317,18 +319,18 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     }
 
     case kAUIPC: {
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, rs1_reg),
-                                   MIR_new_reg_op(ctx, pc_reg)));
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, rs1_reg),
-                                   MIR_new_reg_op(ctx, rs1_reg),
-                                   MIR_new_int_op(ctx, insn.imm())));
+      MIR_append_insn(
+          ctx, func_item,
+          MIR_new_insn(
+              ctx, MIR_MOV, MIR_new_reg_op(ctx, rs1_reg),
+              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                      curPC + insn.imm())))));
       setDst(insn.rd(), MIR_new_reg_op(ctx, rs1_reg));
       break;
     }
 
     case kECALL: {
+      hasEcall = true;
       MIR_var_t syscall_args[] = {{MIR_T_P, "state", 0}};
       MIR_item_t syscall_proto =
           MIR_new_proto_arr(ctx, "syscall_proto", 0, nullptr, 1, syscall_args);
@@ -356,11 +358,15 @@ JitFunction MIRJit::translate(const BBInfo &info) {
       break;
     }
 
-    if (!isa::changesPC(insn.opcode()))
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_ADDS, MIR_new_reg_op(ctx, pc_reg),
-                                   MIR_new_reg_op(ctx, pc_reg),
-                                   MIR_new_int_op(ctx, isa::kWordSize)));
+    curPC += isa::kWordSize;
+  }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
+                     MIR_new_int_op(ctx, static_cast<int64_t>(
+                                             static_cast<uint32_t>(curPC)))));
   }
 
   MIR_append_insn(
@@ -380,6 +386,72 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                                   state_ptr, 0, 0),
                    MIR_new_reg_op(ctx, rd_reg),
                    MIR_new_int_op(ctx, info.insns.size())));
+
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+
+  if (!lastIsJalr) {
+    MIR_label_t end_label = MIR_new_label(ctx);
+
+    if (hasEcall) {
+      MIR_append_insn(ctx, func_item,
+                      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_fin),
+                                   MIR_new_mem_op(ctx, MIR_T_U8,
+                                                  offsetof(CPUState, finished),
+                                                  state_ptr, 0, 0)));
+      MIR_append_insn(ctx, func_item,
+                      MIR_new_insn(ctx, MIR_BT,
+                                   MIR_new_label_op(ctx, end_label),
+                                   MIR_new_reg_op(ctx, ch_fin)));
+    }
+
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_UEXT32, MIR_new_reg_op(ctx, ch_pc),
+                                 MIR_new_reg_op(ctx, pc_reg)));
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_URSH, MIR_new_reg_op(ctx, ch_off),
+                                 MIR_new_reg_op(ctx, ch_pc),
+                                 MIR_new_int_op(ctx, kTbCacheGranularityLog2)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_AND, MIR_new_reg_op(ctx, ch_off),
+                     MIR_new_reg_op(ctx, ch_off),
+                     MIR_new_int_op(ctx, static_cast<int64_t>(kTbCacheMask))));
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_LSH, MIR_new_reg_op(ctx, ch_off),
+                                 MIR_new_reg_op(ctx, ch_off),
+                                 MIR_new_int_op(ctx, 4)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_base),
+                     MIR_new_mem_op(ctx, MIR_T_P,
+                                    offsetof(CPUState, tb_cache_base),
+                                    state_ptr, 0, 0)));
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_ADD, MIR_new_reg_op(ctx, ch_entry),
+                                 MIR_new_reg_op(ctx, ch_base),
+                                 MIR_new_reg_op(ctx, ch_off)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_gpa),
+                     MIR_new_mem_op(ctx, MIR_T_U32, offsetof(TbCacheEntry, gpa),
+                                    ch_entry, 0, 0)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_fn),
+                     MIR_new_mem_op(ctx, MIR_T_P, 0, ch_entry, 0, 0)));
+    MIR_append_insn(ctx, func_item,
+                    MIR_new_insn(ctx, MIR_BNE, MIR_new_label_op(ctx, end_label),
+                                 MIR_new_reg_op(ctx, ch_gpa),
+                                 MIR_new_reg_op(ctx, ch_pc)));
+    MIR_append_insn(
+        ctx, func_item,
+        MIR_new_insn(ctx, MIR_MOV,
+                     MIR_new_mem_op(ctx, MIR_T_P, offsetof(CPUState, next_tb),
+                                    state_ptr, 0, 0),
+                     MIR_new_reg_op(ctx, ch_fn)));
+    MIR_append_insn(ctx, func_item, end_label);
+  }
 
   MIR_append_insn(ctx, func_item, MIR_new_ret_insn(ctx, 0));
 

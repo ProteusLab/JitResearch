@@ -65,6 +65,8 @@ public:
     *reinterpret_cast<std::uint32_t *>(translateAddr(addr)) = val;
   }
 
+  void *getBase() const override { return m_data.data(); }
+
   void writeBlock(std::span<const std::byte> src, isa::Addr addr) override {
     // checkRange(addr, src.size());
     std::memcpy(translateAddr(addr), src.data(), src.size());

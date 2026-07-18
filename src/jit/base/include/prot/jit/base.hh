@@ -2,17 +2,31 @@
 #define INCLUDE_JIT_BASE_HH_INCLUDED
 
 #include "prot/interpreter.hh"
-
+#include <filesystem>
 #include <unordered_map>
 #include <vector>
 
 namespace prot::engine {
 using JitFunction = void (*)(CPUState &);
 
+// Layout shared with JIT backends that perform inline block-chaining.
+// Generated code indexes the TB cache directly, so the entry layout and
+// hashing constants must stay in sync with TbCache below.
+struct TbCacheEntry final {
+  JitFunction func{};
+  std::uint32_t gpa{};
+};
+
+inline constexpr std::uint64_t kTbCacheSizeLog2{22};
+inline constexpr std::uint64_t kTbCacheSize{1ULL << kTbCacheSizeLog2};
+inline constexpr std::uint64_t kTbCacheGranularityLog2{2};
+inline constexpr std::uint64_t kTbCacheMask{kTbCacheSize - 1};
+
 // simple bb counting
 struct BBInfo final {
   std::vector<isa::Instruction> insns;
   std::size_t num_exec{};
+  isa::Addr startPC{};
 };
 
 struct Translator {
@@ -30,6 +44,7 @@ public:
     std::size_t execThreshold{};
     bool singleStep{false};
     bool enableDump{false};
+    std::filesystem::path statsFile{};
   };
 
   JitEngine(const Config &config, std::unique_ptr<Translator> translator)
@@ -37,17 +52,16 @@ public:
 
   void step(CPUState &cpu) override;
 
+  ~JitEngine() override;
+
 protected:
   struct TbCache {
     static constexpr std::uint64_t kInvalidAddr{0};
-    static constexpr std::uint64_t kSizeLog2{22};
-    static constexpr std::uint64_t kSize{1ULL << kSizeLog2};
-    static constexpr std::uint64_t kGpaGranularityLog2{2};
+    static constexpr std::uint64_t kSizeLog2{kTbCacheSizeLog2};
+    static constexpr std::uint64_t kSize{kTbCacheSize};
+    static constexpr std::uint64_t kGpaGranularityLog2{kTbCacheGranularityLog2};
 
-    struct Entry {
-      JitFunction func{};
-      std::uint32_t gpa{};
-    };
+    using Entry = TbCacheEntry;
 
     JitFunction lookup(std::uint32_t gpa) const {
       const auto &entry = get(gpa);
@@ -56,6 +70,8 @@ protected:
     void insert(std::uint32_t gpa, JitFunction func) {
       get(gpa) = Entry{.func = func, .gpa = gpa};
     }
+
+    [[nodiscard]] const void *baseAddr() const { return m_cache.data(); }
 
   private:
     const Entry &get(std::uint32_t gpa) const { return m_cache[getHash(gpa)]; }
@@ -77,6 +93,12 @@ private:
   }
 
 private:
+  std::uintmax_t m_execTicks{};
+  std::uintmax_t m_transTicks{};
+  std::uintmax_t m_interpTicks{};
+  std::uintmax_t m_sessionIcount{};
+  std::uintmax_t m_translatedInstrs{};
+
   Config m_config{};
   TbCache m_tbCache;
   std::unique_ptr<Translator> m_translator;

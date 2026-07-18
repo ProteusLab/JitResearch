@@ -105,11 +105,17 @@ JitFunction Lightning::translate(const BBInfo &info) {
     assert(reg < JIT_R_NUM);
     jit_ldxi_ui(JIT_R(reg), JIT_V0, offsetof(CPUState, pc));
   };
+  auto loadMemBase = [&](int reg) {
+    assert(reg < JIT_R_NUM);
+    jit_ldxi_l(JIT_R(reg), JIT_V0, offsetof(CPUState, mem_base));
+  };
   auto storePC = [&](int reg) {
     assert(reg < JIT_R_NUM);
     jit_stxi_i(offsetof(CPUState, pc), JIT_V0, JIT_R(reg));
   };
 
+  isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
   for (const auto &insn : info.insns) {
     // jit_note(insn.mnemonic().data(), i++);
     std::make_unsigned_t<jit_word_t> sextImm = insn.imm();
@@ -176,8 +182,7 @@ JitFunction Lightning::translate(const BBInfo &info) {
 #undef PROT_MAKE_SHIFT_IMPL
 #undef PROT_MAKE_IMPL
     case kAUIPC:
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, insn.imm());
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
       storeRd(0);
       break;
 #define PROT_MAKE_BR(OP, cond)                                                 \
@@ -185,12 +190,10 @@ JitFunction Lightning::translate(const BBInfo &info) {
     loadRS1(0, true);                                                          \
     loadRS2(1, true);                                                          \
     jit_##cond(JIT_R0, JIT_R0, JIT_R1);                                        \
-    jit_movi(JIT_R1, sizeof(isa::Word));                                       \
-    jit_movi(JIT_R2, insn.imm());                                              \
+    jit_movi(JIT_R1, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));   \
+    jit_movi(JIT_R2, static_cast<std::uint32_t>(curPC + insn.imm()));          \
     jit_movzr(JIT_R2, JIT_R1, JIT_R0);                                         \
-    loadPC(0);                                                                 \
-    jit_addr(JIT_R0, JIT_R0, JIT_R2);                                          \
-    storePC(0);                                                                \
+    storePC(2);                                                                \
     break;
 
       PROT_MAKE_BR(EQ, eqr)
@@ -205,21 +208,20 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kFENCE:
       break;
     case kECALL:
+      hasEcall = true;
       jit_prepare();
       jit_pushargr(JIT_V0);
       jit_finishi(reinterpret_cast<void *>(&syscallHelper));
       break;
 
     case kJAL:
-      loadPC(0);
-      jit_addi(JIT_R1, JIT_R0, sizeof(isa::Word));
+      jit_movi(JIT_R1, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
       storeRd(1);
-      jit_addi(JIT_R0, JIT_R0, insn.imm());
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
       storePC(0);
       break;
     case kJALR:
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, sizeof(isa::Word));
+      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
       loadRS1(1);
       storeRd(0);
       jit_addi(JIT_R1, JIT_R1, insn.imm());
@@ -233,44 +235,36 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kPAUSE:
       break;
 
-#define PROT_MAKE_IMPL(OP, type, sext)                                         \
+#define PROT_MAKE_IMPL(OP, GNU_TYPE)                                           \
   case k##OP:                                                                  \
     loadRS1(0);                                                                \
     jit_addi(JIT_R0, JIT_R0, insn.imm());                                      \
-    jit_prepare();                                                             \
-    jit_pushargr(JIT_V0);                                                      \
-    jit_pushargr(JIT_R0);                                                      \
-                                                                               \
-    jit_finishi(reinterpret_cast<void *>(&loadHelper<isa::type>));             \
-    jit_retval(JIT_R0);                                                        \
-    if (sext) {                                                                \
-      jit_extr(JIT_R0, JIT_R0, 0, sizeofBits<isa::type>());                    \
-    }                                                                          \
+    loadMemBase(1);                                                            \
+    jit_andi(JIT_R0, JIT_R0, ~std::uint32_t{0});                               \
+    jit_ldxr_##GNU_TYPE(JIT_R0, JIT_R1, JIT_R0);                               \
     storeRd(0);                                                                \
     break;
 
-      PROT_MAKE_IMPL(LB, Byte, true);
-      PROT_MAKE_IMPL(LBU, Byte, false);
-      PROT_MAKE_IMPL(LH, Half, true);
-      PROT_MAKE_IMPL(LHU, Half, false);
-      PROT_MAKE_IMPL(LW, Word, false);
+      PROT_MAKE_IMPL(LB, c);
+      PROT_MAKE_IMPL(LBU, uc);
+      PROT_MAKE_IMPL(LH, s);
+      PROT_MAKE_IMPL(LHU, us);
+      PROT_MAKE_IMPL(LW, ui);
 #undef PROT_MAKE_IMPL
 
-#define PROT_MAKE_IMPL(OP, type)                                               \
+#define PROT_MAKE_IMPL(OP, GNU_TYPE)                                           \
   case k##OP:                                                                  \
     loadRS1(0);                                                                \
     jit_addi(JIT_R0, JIT_R0, insn.imm());                                      \
+    jit_andi(JIT_R0, JIT_R0, ~std::uint32_t{0});                               \
     loadRS2(1);                                                                \
-    jit_prepare();                                                             \
-    jit_pushargr(JIT_V0);                                                      \
-    jit_pushargr(JIT_R0);                                                      \
-    jit_pushargr(JIT_R1);                                                      \
-    jit_finishi(reinterpret_cast<void *>(&storeHelper<isa::type>));            \
+    loadMemBase(2);                                                            \
+    jit_stxr_##GNU_TYPE(JIT_R2, JIT_R0, JIT_R1);                               \
     break;
 
-      PROT_MAKE_IMPL(SB, Byte);
-      PROT_MAKE_IMPL(SH, Half);
-      PROT_MAKE_IMPL(SW, Word);
+      PROT_MAKE_IMPL(SB, c);
+      PROT_MAKE_IMPL(SH, s);
+      PROT_MAKE_IMPL(SW, i);
 
     case kSBREAK:
     case kSCALL:
@@ -314,11 +308,40 @@ JitFunction Lightning::translate(const BBInfo &info) {
     }
 
     if (!isa::changesPC(insn.opcode())) {
-      loadPC(0);
-      jit_addi(JIT_R0, JIT_R0, sizeof(isa::Word));
-      storePC(0);
+      curPC += isa::kWordSize;
     }
   }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC));
+    storePC(0);
+  }
+
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == kJALR;
+  if (!lastIsJalr) {
+    jit_node_t *finSkip = nullptr;
+    if (hasEcall) {
+      jit_ldxi_uc(JIT_R0, JIT_V0, offsetof(CPUState, finished));
+      finSkip = jit_bnei(JIT_R0, 0);
+    }
+
+    loadPC(0);
+    jit_ldxi_l(JIT_R1, JIT_V0, offsetof(CPUState, tb_cache_base));
+    jit_rshi_u(JIT_R2, JIT_R0, kTbCacheGranularityLog2);
+    jit_andi(JIT_R2, JIT_R2, kTbCacheMask);
+    jit_muli(JIT_R2, JIT_R2, sizeof(TbCacheEntry));
+    jit_addr(JIT_R1, JIT_R1, JIT_R2);
+    jit_ldxi_ui(JIT_R2, JIT_R1, offsetof(TbCacheEntry, gpa));
+    jit_node_t *miss = jit_bner(JIT_R2, JIT_R0);
+    jit_ldxi_l(JIT_R2, JIT_R1, 0);
+    jit_stxi_l(offsetof(CPUState, next_tb), JIT_V0, JIT_R2);
+    jit_patch(miss);
+    if (finSkip != nullptr) {
+      jit_patch(finSkip);
+    }
+  }
+
   // update icount
   jit_ldxi_ui(JIT_R0, JIT_V0, offsetof(CPUState, icount));
   jit_addi(JIT_R0, JIT_R0, info.insns.size());

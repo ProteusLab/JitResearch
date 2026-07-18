@@ -29,7 +29,8 @@ public:
 
   JitFunction translate(const BBInfo &info) override {
     auto name = std::to_string(m_moduleId++);
-    const auto &[ctx, module] = ll::translate(name, info.insns);
+    const auto &[ctx, module] =
+        ll::translate(name, info.insns, info.startPC, ll::ChainMode::None);
 
     auto *func = module->getFunction(name);
     m_mappers.push_front(

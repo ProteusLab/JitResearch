@@ -25,15 +25,6 @@ private:
   std::vector<CodeHolder> m_holders;
 };
 
-void storeHelper(CPUState &state, isa::Addr addr,
-                 std::unsigned_integral auto val) {
-  state.memory->write(addr, val);
-}
-
-template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
-  return state.memory->read<T>(addr);
-}
-
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
 JitFunction XByakJit::translate(const BBInfo &info) {
@@ -52,6 +43,19 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   auto getPc = [&frame, this] {
     return dword[frame.p[0] + offsetof(CPUState, pc)];
   };
+
+  auto getMemBase = [&frame, this](Xbyak::Reg64 dst) {
+    mov(dst, qword[frame.p[0] + offsetof(CPUState, mem_base)]);
+  };
+
+  auto getMemAccOp = [&](Xbyak::Reg32 base, Xbyak::Reg32 addr,
+                         const Xbyak::AddressFrame &mem_type) {
+    getMemBase(base.cvt64());
+    return mem_type[base.cvt64() + addr.cvt64()];
+  };
+
+  isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
@@ -86,8 +90,7 @@ JitFunction XByakJit::translate(const BBInfo &info) {
 #undef PROT_MAKE_IMPL
 
     case kAUIPC: {
-      mov(temp1, getPc());
-      add(temp1, insn.imm());
+      mov(temp1, static_cast<std::uint32_t>(curPC + insn.imm()));
       setRd(temp1);
       break;
     }
@@ -96,11 +99,11 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   case kB##Op: {                                                               \
     getRs1(temp1);                                                             \
     cmp(temp1, getReg(insn.rs2()));                                            \
-    mov(temp1, isa::kWordSize);                                                \
-    mov(temp2, insn.imm());                                                    \
+    mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));            \
+    mov(temp2, static_cast<std::uint32_t>(curPC + insn.imm()));                \
     cmov##cc(temp1, temp2);                                                    \
                                                                                \
-    add(getPc(), temp1);                                                       \
+    mov(getPc(), temp1);                                                       \
     break;                                                                     \
   }
       PROT_MAKE_IMPL(EQ, z)
@@ -114,6 +117,7 @@ JitFunction XByakJit::translate(const BBInfo &info) {
     case kEBREAK:
       break;
     case kECALL: {
+      hasEcall = true;
       // set finished
       mov(frame.t[0], reinterpret_cast<std::uintptr_t>(&syscallHelper));
       push(frame.p[0]);
@@ -125,22 +129,19 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       break;
     }
     case kJAL: {
-      mov(temp1, getPc());
-      add(temp1, isa::kWordSize);
+      mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));
       setRd(temp1);
 
-      add(getPc(), insn.imm());
+      mov(getPc(), static_cast<std::uint32_t>(curPC + insn.imm()));
       break;
     }
     case kJALR: {
-      mov(temp1, getPc());
-      add(temp1, isa::kWordSize);
-
       getRs1(temp2);
       add(temp2, insn.imm());
       and_(temp2, ~std::uint32_t{1});
       mov(getPc(), temp2);
 
+      mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));
       setRd(temp1);
       break;
     }
@@ -150,49 +151,21 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       }
       break;
     }
-    case kLB:
-    case kLBU:
-    case kLH:
-    case kLHU:
-    case kLW: {
-      auto addr = frame.p[1].cvt32();
-      getRs1(addr);
-      add(addr, insn.imm()); // calc addr
+#define PROT_MAKE_LOAD(OP, MOV_OP, WORD_OP)                                    \
+  case k##OP:                                                                  \
+    getRs1(temp1);                                                             \
+    add(temp1, insn.imm());                                                    \
+    MOV_OP(temp1, getMemAccOp(temp2, temp1, WORD_OP));                         \
+    setRd(temp1);                                                              \
+    break;
+      PROT_MAKE_LOAD(LB, movsx, byte);
+      PROT_MAKE_LOAD(LBU, movzx, byte);
+      PROT_MAKE_LOAD(LH, movsx, word);
+      PROT_MAKE_LOAD(LHU, movzx, word);
+      PROT_MAKE_LOAD(LW, mov, dword);
 
-      const auto helper = [op = insn.opcode()] {
-        switch (op) {
-        case kLB:
-        case kLBU:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Byte>);
-        case kLH:
-        case kLHU:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Half>);
-        case kLW:
-          return reinterpret_cast<std::uintptr_t>(&loadHelper<isa::Word>);
-        default:
-          return std::uintptr_t{};
-        }
-      }();
+#undef PROT_MAKE_LOAD
 
-      push(frame.p[0]);
-      mov(frame.t[0], helper);
-      call(frame.t[0]);
-      pop(frame.p[0]);
-      switch (insn.opcode()) {
-      case kLB:
-        cbw();
-        [[fallthrough]];
-      case kLH:
-        cwde();
-        break;
-      default:
-        break;
-      }
-
-      setRd(eax);
-
-      break;
-    }
     case kPAUSE:
     case kSBREAK:
     case kSCALL: {
@@ -244,41 +217,52 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       setRd(temp1);
       break;
     }
-    case kSB:
-    case kSH:
-    case kSW: {
-      auto addr = frame.p[1].cvt32();
-      getRs1(addr);
-      add(addr, insn.imm()); // calc addr
-      auto val = frame.p[2].cvt32();
-      getRs2(val);
 
-      const auto helper = [op = insn.opcode()] {
-        switch (op) {
-        case kSB:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Byte>);
-        case kSH:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Half>);
-        case kSW:
-          return reinterpret_cast<std::uintptr_t>(&storeHelper<isa::Word>);
-        default:
-          return std::uintptr_t{};
-        };
-      }();
+#define PROT_MAKE_STORE(OP, MEM_OP, BITS)                                      \
+  case k##OP:                                                                  \
+    getRs1(temp1);                                                             \
+    add(temp1, insn.imm());                                                    \
+    getRs2(temp3);                                                             \
+    mov(getMemAccOp(temp2, temp1, MEM_OP), temp3.cvt##BITS());                 \
+    break;
 
-      push(frame.p[0]);
-      mov(frame.t[0], helper);
-      call(frame.t[0]);
-      pop(frame.p[0]);
-      break;
-    }
+      PROT_MAKE_STORE(SB, byte, 8)
+      PROT_MAKE_STORE(SH, word, 16)
+      PROT_MAKE_STORE(SW, dword, 32)
+
     case kNumOpcodes:
       throw std::invalid_argument{"Unexpected insn id"};
     }
-    if (!isa::changesPC(insn.opcode())) {
-      add(getPc(), isa::kWordSize);
+    curPC += isa::kWordSize;
+  }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    mov(getPc(), static_cast<std::uint32_t>(curPC));
+  }
+
+  add(qword[frame.p[0] + offsetof(CPUState, icount)],
+      static_cast<int>(info.insns.size()));
+
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+  if (!lastIsJalr) {
+    Xbyak::Label skip;
+    if (hasEcall) {
+      cmp(byte[frame.p[0] + offsetof(CPUState, finished)], 0);
+      jne(skip);
     }
-    inc(qword[frame.p[0] + offsetof(CPUState, icount)]);
+    mov(temp1, getPc());
+    mov(temp2, temp1);
+    shr(temp2, kTbCacheGranularityLog2);
+    and_(temp2, static_cast<std::uint32_t>(kTbCacheMask));
+    mov(temp3.cvt64(), qword[frame.p[0] + offsetof(CPUState, tb_cache_base)]);
+    shl(temp2.cvt64(), 4);
+    add(temp3.cvt64(), temp2.cvt64());
+    cmp(temp1, dword[temp3.cvt64() + offsetof(TbCacheEntry, gpa)]);
+    jne(skip);
+    mov(temp2.cvt64(), qword[temp3.cvt64() + offsetof(TbCacheEntry, func)]);
+    mov(qword[frame.p[0] + offsetof(CPUState, next_tb)], temp2.cvt64());
+    L(skip);
   }
 
   frame.close();

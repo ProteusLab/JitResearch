@@ -72,50 +72,10 @@
     loadReg(rs1, insn.rs1());                                                  \
     loadReg(rs2, insn.rs2());                                                  \
     cc.cmp(rs1, rs2);                                                          \
-    cc.mov(rs1, isa::kWordSize);                                               \
-    cc.mov(rs2, insn.imm());                                                   \
+    cc.mov(rs1, static_cast<uint32_t>(curPC + isa::kWordSize));                \
+    cc.mov(rs2, static_cast<uint32_t>(curPC + insn.imm()));                    \
     cc.cmov(COND, rs1, rs2);                                                   \
-    cc.add(getPC(), rs1);                                                      \
-    break;                                                                     \
-  }
-
-#define PROT_ASMJIT_S_OP(OP, DATA_TYPE)                                        \
-  case k##OP: {                                                                \
-    loadReg(rs1, insn.rs1());                                                  \
-    cc.add(rs1, insn.imm());                                                   \
-    loadReg(rs2, insn.rs2());                                                  \
-    asmjit::InvokeNode *invoke{};                                              \
-    cc.invoke(&invoke, reinterpret_cast<size_t>(storeHelper<DATA_TYPE>),       \
-              asmjit::FuncSignature::build<void, CPUState &, isa::Addr,        \
-                                           DATA_TYPE>());                      \
-    invoke->setArg(0, state_ptr);                                              \
-    invoke->setArg(1, rs1);                                                    \
-    invoke->setArg(2, rs2);                                                    \
-    break;                                                                     \
-  }
-
-#define PROT_ASMJIT_L_OP(OP, DATA_TYPE)                                        \
-  case k##OP: {                                                                \
-    loadReg(rs1, insn.rs1());                                                  \
-    cc.add(rs1, insn.imm());                                                   \
-    asmjit::InvokeNode *invoke = nullptr;                                      \
-    cc.invoke(                                                                 \
-        &invoke, reinterpret_cast<size_t>(loadHelper<DATA_TYPE>),              \
-        asmjit::FuncSignature::build<DATA_TYPE, CPUState &, isa::Addr>());     \
-    invoke->setArg(0, state_ptr);                                              \
-    invoke->setArg(1, rs1);                                                    \
-    invoke->setRet(0, rd);                                                     \
-    switch (insn.opcode()) {                                                   \
-    case kLB:                                                                  \
-      cc.movsx(rd, rd.r8());                                                   \
-      break;                                                                   \
-    case kLH:                                                                  \
-      cc.movsx(rd, rd.r16());                                                  \
-      break;                                                                   \
-    default:                                                                   \
-      break;                                                                   \
-    }                                                                          \
-    setDst(insn.rd(), rd);                                                     \
+    cc.mov(getPC(), rs1);                                                      \
     break;                                                                     \
   }
 
@@ -134,14 +94,6 @@ private:
   asmjit::JitRuntime runtime;
 };
 
-template <typename T> void storeHelper(CPUState &state, isa::Addr addr, T val) {
-  state.memory->write(addr, val);
-}
-
-template <typename T> T loadHelper(CPUState &state, isa::Addr addr) {
-  return state.memory->read<T>(addr);
-}
-
 void syscallHelper(CPUState &state) { state.emulateSysCall(); }
 
 JitFunction AsmJit::translate(const BBInfo &info) {
@@ -154,6 +106,10 @@ JitFunction AsmJit::translate(const BBInfo &info) {
 
   auto state_ptr = cc.newUIntPtr();
   func_node->setArg(0, state_ptr);
+
+  auto mem_base = cc.newUInt64();
+  cc.mov(mem_base,
+         asmjit::x86::qword_ptr(state_ptr, offsetof(CPUState, mem_base)));
 
   auto getReg = [&state_ptr](auto regId) {
     return asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, regs) +
@@ -180,6 +136,12 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto rs1 = cc.newGpd();
   auto rs2 = cc.newGpd();
   auto rd = cc.newGpd();
+
+  auto guest_addr = cc.newGpd();
+  auto host_addr = cc.newUInt64();
+
+  isa::Addr curPC = info.startPC;
+  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -209,41 +171,120 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       PROT_ASMJIT_B_COND_OP(BLTU, kUnsignedLT)
       PROT_ASMJIT_B_COND_OP(BGEU, kUnsignedGE)
 
-      PROT_ASMJIT_L_OP(LB, prot::isa::Byte)
-      PROT_ASMJIT_L_OP(LH, prot::isa::Half)
-      PROT_ASMJIT_L_OP(LBU, prot::isa::Byte)
-      PROT_ASMJIT_L_OP(LHU, prot::isa::Half)
-      PROT_ASMJIT_L_OP(LW, prot::isa::Word)
+    case kLW: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
 
-      PROT_ASMJIT_S_OP(SB, prot::isa::Byte)
-      PROT_ASMJIT_S_OP(SH, prot::isa::Half)
-      PROT_ASMJIT_S_OP(SW, prot::isa::Word)
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
 
-    // PROT_ASMJIT_J_OP
-    case kJAL: {
-      cc.mov(rd, getPC());
-      cc.add(rd, isa::kWordSize);
+      cc.mov(rd, asmjit::x86::dword_ptr(host_addr));
       setDst(insn.rd(), rd);
-      cc.mov(pc, getPC());
-      cc.add(pc, insn.imm());
-      cc.mov(getPC(), pc);
       break;
     }
-    case kJALR: {
-      cc.mov(rd, getPC());
-      cc.add(rd, isa::kWordSize);
 
+    case kLH: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movsx(rd, asmjit::x86::word_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLHU: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movzx(rd, asmjit::x86::word_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLB: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movsx(rd, asmjit::x86::byte_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kLBU: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.movzx(rd, asmjit::x86::byte_ptr(host_addr));
+      setDst(insn.rd(), rd);
+      break;
+    }
+
+    case kSW: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::dword_ptr(host_addr), rd);
+      break;
+    }
+
+    case kSH: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::word_ptr(host_addr), rd.r16());
+      break;
+    }
+
+    case kSB: {
+      loadReg(guest_addr, insn.rs1());
+      cc.add(guest_addr, insn.imm());
+      loadReg(rd, insn.rs2());
+
+      cc.mov(host_addr, mem_base);
+      cc.add(host_addr, guest_addr.r64());
+
+      cc.mov(asmjit::x86::byte_ptr(host_addr), rd.r8());
+      break;
+    }
+
+    case kJAL: {
+      cc.mov(rd, static_cast<uint32_t>(curPC + isa::kWordSize));
+      setDst(insn.rd(), rd);
+      cc.mov(getPC(), static_cast<uint32_t>(curPC + insn.imm()));
+      break;
+    }
+
+    case kJALR: {
       loadReg(pc, insn.rs1());
       cc.add(pc, insn.imm());
       cc.and_(pc, ~0b1);
-
-      setDst(insn.rd(), rd);
-
       cc.mov(getPC(), pc);
+
+      cc.mov(rd, static_cast<uint32_t>(curPC + isa::kWordSize));
+      setDst(insn.rd(), rd);
       break;
     }
 
-    // PROT_ASMJIT_U_OP
     case kLUI: {
       cc.mov(rs1, insn.imm());
       setDst(insn.rd(), rs1);
@@ -251,13 +292,13 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kAUIPC: {
-      cc.mov(rs1, getPC());
-      cc.add(rs1, insn.imm());
+      cc.mov(rs1, static_cast<uint32_t>(curPC + insn.imm()));
       setDst(insn.rd(), rs1);
       break;
     }
 
     case kECALL: {
+      hasEcall = true;
       asmjit::InvokeNode *invoke{};
       cc.invoke(&invoke, reinterpret_cast<size_t>(syscallHelper),
                 asmjit::FuncSignature::build<void, CPUState &>());
@@ -277,14 +318,49 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       throw std::invalid_argument{"Unexpected insn id"};
     }
 
-    if (!isa::changesPC(insn.opcode())) {
-      cc.mov(pc, getPC());
-      cc.add(pc, isa::kWordSize);
-      cc.mov(getPC(), pc);
-    }
+    curPC += isa::kWordSize;
   }
+
+  if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {
+    cc.mov(getPC(), static_cast<uint32_t>(curPC));
+  }
+
   cc.mov(rd, info.insns.size());
   cc.add(asmjit::x86::dword_ptr(state_ptr, offsetof(CPUState, icount)), rd);
+
+  const bool lastIsJalr =
+      !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
+  if (!lastIsJalr) {
+    asmjit::Label skip = cc.newLabel();
+
+    if (hasEcall) {
+      cc.cmp(asmjit::x86::byte_ptr(state_ptr, offsetof(CPUState, finished)), 0);
+      cc.jne(skip);
+    }
+
+    auto cpc = cc.newGpd();
+    cc.mov(cpc, getPC());
+
+    auto entry = cc.newUInt64();
+    cc.mov(entry.r32(), cpc);
+    cc.shr(entry.r32(), static_cast<uint32_t>(kTbCacheGranularityLog2));
+    cc.and_(entry.r32(), static_cast<uint32_t>(kTbCacheMask));
+    cc.shl(entry, 4);
+    cc.add(entry, asmjit::x86::qword_ptr(state_ptr,
+                                         offsetof(CPUState, tb_cache_base)));
+
+    auto gpa = cc.newGpd();
+    cc.mov(gpa, asmjit::x86::dword_ptr(entry, offsetof(TbCacheEntry, gpa)));
+    cc.cmp(gpa, cpc);
+    cc.jne(skip);
+
+    auto fn = cc.newUInt64();
+    cc.mov(fn, asmjit::x86::qword_ptr(entry, offsetof(TbCacheEntry, func)));
+    cc.mov(asmjit::x86::qword_ptr(state_ptr, offsetof(CPUState, next_tb)), fn);
+
+    cc.bind(skip);
+  }
+
   cc.endFunc();
   cc.finalize();
 

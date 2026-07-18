@@ -2,27 +2,50 @@
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
+#include <fmt/std.h>
 
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 
 extern "C" {
 #include <sys/mman.h>
+#include <x86intrin.h>
 }
 
 namespace prot::engine {
+namespace {
+template <typename Func, typename... Args>
+decltype(auto) measure(std::uintmax_t &dst, Func &&func, Args &&...args) {
+  struct Timer {
+    std::uintmax_t &dst;
+    std::uintmax_t beg{};
+    Timer(std::uintmax_t &dst) : dst(dst), beg(__rdtsc()) {}
+    ~Timer() { dst += __rdtsc() - beg; }
+  } timer{dst};
+  return std::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
+}
+} // namespace
+
 void JitEngine::step(CPUState &cpu) {
+  cpu.tb_cache_base = m_tbCache.baseAddr();
   while (!cpu.finished) [[likely]] {
     if (m_config.enableDump) {
       cpu.dump(std::cout);
     }
 
-    // colllect bb
+    // collect bb
     const auto pc = cpu.getPC();
     if (m_translator) {
-      if (const auto found = m_tbCache.lookup(pc); found != nullptr)
-          [[likely]] {
-        found(cpu);
+      if (JitFunction fn = m_tbCache.lookup(pc); fn != nullptr) [[likely]] {
+        // Block chaining
+        auto __t0 = __rdtsc();
+        do {
+          cpu.next_tb = nullptr;
+          fn(cpu);
+          fn = reinterpret_cast<JitFunction>(const_cast<void *>(cpu.next_tb));
+        } while (fn != nullptr);
+        m_execTicks += __rdtsc() - __t0;
         continue;
       }
     }
@@ -31,6 +54,7 @@ void JitEngine::step(CPUState &cpu) {
     if (wasNew) [[unlikely]] {
       auto curAddr = bbIt->first;
       auto &bb = bbIt->second;
+      bb.startPC = curAddr;
 
       while (true) {
         auto bytes = cpu.memory->read<isa::Word>(curAddr);
@@ -50,19 +74,22 @@ void JitEngine::step(CPUState &cpu) {
     }
     if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
         [[likely]] {
-      auto code = m_translator->translate(bbIt->second);
+      auto code = measure(m_transTicks, &Translator::translate, m_translator,
+                          bbIt->second);
+      m_translatedInstrs += bbIt->second.insns.size();
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
       }
 
-      code(cpu);
+      measure(m_execTicks, code, cpu);
       m_tbCache.insert(pc, code);
       continue;
     }
 
-    interpret(cpu, bbIt->second);
+    measure(m_interpTicks, &JitEngine::interpret, this, cpu, bbIt->second);
   }
+  m_sessionIcount = cpu.icount;
 }
 void JitEngine::interpret(CPUState &cpu, BBInfo &info) {
   for (const auto &insn : info.insns) {
@@ -80,6 +107,26 @@ auto JitEngine::getBBInfo(isa::Addr pc) const -> const BBInfo * {
   }
 
   return nullptr;
+}
+
+JitEngine::~JitEngine() {
+  std::filesystem::path jsonPath =
+      std::filesystem::current_path() / m_config.statsFile;
+  std::ofstream json(jsonPath);
+  fmt::println(json, R"(
+{{
+    "exec_ticks": {},
+    "translate_ticks": {},
+    "interp_ticks": {},
+    "icount": {},
+    "translated_instrs": {}
+}}
+)",
+               m_execTicks, m_transTicks, m_interpTicks, m_sessionIcount,
+               m_translatedInstrs);
+  if (json) {
+    fmt::println(std::cerr, "Stats were written to file: {}", jsonPath);
+  }
 }
 
 void CodeHolder::Unmap::operator()(void *ptr) const noexcept {
