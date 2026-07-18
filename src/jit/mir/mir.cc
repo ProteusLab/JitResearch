@@ -176,7 +176,6 @@ JitFunction MIRJit::translate(const BBInfo &info) {
   MIR_reg_t ch_entry = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_entry");
   MIR_reg_t ch_gpa = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_gpa");
   MIR_reg_t ch_fn = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_fn");
-  MIR_reg_t ch_fin = MIR_new_func_reg(ctx, func, MIR_T_I64, "ch_fin");
 
   auto getReg = [this, state_ptr](auto regId) {
     return MIR_new_mem_op(ctx, MIR_T_U32,
@@ -229,7 +228,6 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                                getMemBase()));
 
   isa::Addr curPC = info.startPC;
-  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -330,7 +328,6 @@ JitFunction MIRJit::translate(const BBInfo &info) {
     }
 
     case kECALL: {
-      hasEcall = true;
       MIR_var_t syscall_args[] = {{MIR_T_P, "state", 0}};
       MIR_item_t syscall_proto =
           MIR_new_proto_arr(ctx, "syscall_proto", 0, nullptr, 1, syscall_args);
@@ -393,17 +390,17 @@ JitFunction MIRJit::translate(const BBInfo &info) {
   if (!lastIsJalr) {
     MIR_label_t end_label = MIR_new_label(ctx);
 
-    if (hasEcall) {
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_fin),
-                                   MIR_new_mem_op(ctx, MIR_T_U8,
-                                                  offsetof(CPUState, finished),
-                                                  state_ptr, 0, 0)));
-      MIR_append_insn(ctx, func_item,
-                      MIR_new_insn(ctx, MIR_BT,
-                                   MIR_new_label_op(ctx, end_label),
-                                   MIR_new_reg_op(ctx, ch_fin)));
-    }
+    // if (hasEcall) {
+    //   MIR_append_insn(ctx, func_item,
+    //                   MIR_new_insn(ctx, MIR_MOV, MIR_new_reg_op(ctx, ch_fin),
+    //                                MIR_new_mem_op(ctx, MIR_T_U8,
+    //                                               offsetof(CPUState, finished),
+    //                                               state_ptr, 0, 0)));
+    //   MIR_append_insn(ctx, func_item,
+    //                   MIR_new_insn(ctx, MIR_BT,
+    //                                MIR_new_label_op(ctx, end_label),
+    //                                MIR_new_reg_op(ctx, ch_fin)));
+    // }
 
     MIR_append_insn(ctx, func_item,
                     MIR_new_insn(ctx, MIR_UEXT32, MIR_new_reg_op(ctx, ch_pc),

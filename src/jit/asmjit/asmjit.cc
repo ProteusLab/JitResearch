@@ -141,7 +141,6 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   auto host_addr = cc.newUInt64();
 
   isa::Addr curPC = info.startPC;
-  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     switch (insn.opcode()) {
@@ -298,7 +297,6 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     }
 
     case kECALL: {
-      hasEcall = true;
       asmjit::InvokeNode *invoke{};
       cc.invoke(&invoke, reinterpret_cast<size_t>(syscallHelper),
                 asmjit::FuncSignature::build<void, CPUState &>());
@@ -333,10 +331,10 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   if (!lastIsJalr) {
     asmjit::Label skip = cc.newLabel();
 
-    if (hasEcall) {
-      cc.cmp(asmjit::x86::byte_ptr(state_ptr, offsetof(CPUState, finished)), 0);
-      cc.jne(skip);
-    }
+    // if (hasEcall) {
+    //   cc.cmp(asmjit::x86::byte_ptr(state_ptr, offsetof(CPUState, finished)), 0);
+    //   cc.jne(skip);
+    // }
 
     auto cpc = cc.newGpd();
     cc.mov(cpc, getPC());

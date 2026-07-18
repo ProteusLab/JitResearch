@@ -982,16 +982,12 @@ void ECALLbuildIR(InsnIRBuilder &Data, const isa::Instruction & /*unused*/) {
 void EBREAKbuildIR(InsnIRBuilder & /*unused*/,
                    const isa::Instruction & /*unused*/) {}
 
-// Inline TB-cache probe + guaranteed tail call to the successor block.
-// Layout constants MUST stay in sync with prot::engine::TbCacheEntry and the
-// kTbCache* constants in prot/jit/base.hh (mirrored here to avoid pulling the
-// engine header into the low-level builder, same approach as getCPUStateType).
 constexpr std::uint32_t kTbGranularityLog2 = 2;
 constexpr std::uint32_t kTbMask = (1U << 22) - 1U;
-constexpr std::uint64_t kTbEntrySize = 16; // sizeof(TbCacheEntry)
-constexpr std::uint64_t kTbGpaOffset = 8;  // offsetof(TbCacheEntry, gpa)
+constexpr std::uint64_t kTbEntrySize = 16;
+constexpr std::uint64_t kTbGpaOffset = 8;
 
-void emitChainTail(InsnIRBuilder &data, bool hasEcall, llvm::Value *outPC) {
+void emitChainTail(InsnIRBuilder &data, llvm::Value *outPC) {
   auto &ctx = data.getContext();
   auto *fn = data.getFn();
   auto *cpuStructTy = data.getCPUStateType();
@@ -1004,13 +1000,13 @@ void emitChainTail(InsnIRBuilder &data, bool hasEcall, llvm::Value *outPC) {
       data.CreateStructGEP(cpuStructTy, cpuArg, 1));
   llvm::IRBuilder<>{retBB}.CreateRetVoid();
 
-  if (hasEcall) {
-    llvm::Value *finPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 2);
-    llvm::Value *finVal = data.CreateLoad(data.getInt1Ty(), finPtr);
-    llvm::BasicBlock *contBB = llvm::BasicBlock::Create(ctx, "chain.cont", fn);
-    data.CreateCondBr(finVal, retBB, contBB);
-    data.SetInsertPoint(contBB);
-  }
+  // if (hasEcall) {
+  //   llvm::Value *finPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 2);
+  //   llvm::Value *finVal = data.CreateLoad(data.getInt1Ty(), finPtr);
+  //   llvm::BasicBlock *contBB = llvm::BasicBlock::Create(ctx, "chain.cont", fn);
+  //   data.CreateCondBr(finVal, retBB, contBB);
+  //   data.SetInsertPoint(contBB);
+  // }
 
   llvm::Value *basePtr = data.CreateStructGEP(cpuStructTy, cpuArg, 7);
   llvm::Value *base = data.CreateLoad(ptrTy, basePtr);
@@ -1056,13 +1052,9 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
   data.SetInsertPoint(entryBB);
 
   isa::Addr curPC = startPC;
-  bool hasEcall = false;
   for (const auto &insn : insns) {
     data.setCurPC(curPC);
     data.build(insn);
-    if (insn.opcode() == isa::Opcode::kECALL) {
-      hasEcall = true;
-    }
     curPC += isa::kWordSize;
   }
 
@@ -1085,7 +1077,7 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
       !insns.empty() && insns.back().opcode() == isa::Opcode::kJALR;
   llvm::Value *outPC = data.getOutPC();
   if (chainMode == ChainMode::MustTail && !lastIsJalr) {
-    emitChainTail(data, hasEcall, outPC);
+    emitChainTail(data, outPC);
   } else {
     llvm::Value *pcPtr = data.CreateStructGEP(cpuStructTy, cpuArg, 1);
     data.CreateStore(outPC, pcPtr);

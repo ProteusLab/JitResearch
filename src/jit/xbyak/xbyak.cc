@@ -55,7 +55,6 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   };
 
   isa::Addr curPC = info.startPC;
-  bool hasEcall = false;
 
   for (const auto &insn : info.insns) {
     auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
@@ -117,7 +116,6 @@ JitFunction XByakJit::translate(const BBInfo &info) {
     case kEBREAK:
       break;
     case kECALL: {
-      hasEcall = true;
       // set finished
       mov(frame.t[0], reinterpret_cast<std::uintptr_t>(&syscallHelper));
       push(frame.p[0]);
@@ -247,10 +245,10 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       !info.insns.empty() && info.insns.back().opcode() == isa::Opcode::kJALR;
   if (!lastIsJalr) {
     Xbyak::Label skip;
-    if (hasEcall) {
-      cmp(byte[frame.p[0] + offsetof(CPUState, finished)], 0);
-      jne(skip);
-    }
+    // if (hasEcall) {
+    //   cmp(byte[frame.p[0] + offsetof(CPUState, finished)], 0);
+    //   jne(skip);
+    // }
     mov(temp1, getPc());
     mov(temp2, temp1);
     shr(temp2, kTbCacheGranularityLog2);

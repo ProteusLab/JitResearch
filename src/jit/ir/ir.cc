@@ -137,7 +137,6 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
 
   ir_ref pc = IR_UNUSED;
   isa::Addr curPC = info.startPC;
-  bool hasEcall = false;
   ir_ref mem_base =
       ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, mem_base)));
 
@@ -277,7 +276,6 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       break;
     }
     case kECALL: {
-      hasEcall = true;
       ir_CALL_1(IR_VOID, m_func_proto_map["syscallHelper_func"], state_ptr);
       break;
     }
@@ -317,16 +315,16 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     return;
   }
 
-  if (hasEcall) {
-    // A syscall may have requested program exit; never chain past it.
-    ir_ref fin =
-        ir_LOAD_U8(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, finished)));
-    ir_ref if_fin = ir_IF(fin);
-    ir_IF_TRUE(if_fin);
-    ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
-    ir_RETURN(IR_UNUSED);
-    ir_IF_FALSE(if_fin);
-  }
+  // if (hasEcall) {
+  //   // A syscall may have requested program exit; never chain past it.
+  //   ir_ref fin =
+  //       ir_LOAD_U8(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, finished)));
+  //   ir_ref if_fin = ir_IF(fin);
+  //   ir_IF_TRUE(if_fin);
+  //   ir_STORE(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, pc)), pc);
+  //   ir_RETURN(IR_UNUSED);
+  //   ir_IF_FALSE(if_fin);
+  // }
 
   ir_ref cache_base =
       ir_LOAD_U64(ir_ADD_OFFSET(state_ptr, offsetof(CPUState, tb_cache_base)));

@@ -115,7 +115,6 @@ JitFunction Lightning::translate(const BBInfo &info) {
   };
 
   isa::Addr curPC = info.startPC;
-  bool hasEcall = false;
   for (const auto &insn : info.insns) {
     // jit_note(insn.mnemonic().data(), i++);
     std::make_unsigned_t<jit_word_t> sextImm = insn.imm();
@@ -208,7 +207,6 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kFENCE:
       break;
     case kECALL:
-      hasEcall = true;
       jit_prepare();
       jit_pushargr(JIT_V0);
       jit_finishi(reinterpret_cast<void *>(&syscallHelper));
@@ -321,10 +319,10 @@ JitFunction Lightning::translate(const BBInfo &info) {
       !info.insns.empty() && info.insns.back().opcode() == kJALR;
   if (!lastIsJalr) {
     jit_node_t *finSkip = nullptr;
-    if (hasEcall) {
-      jit_ldxi_uc(JIT_R0, JIT_V0, offsetof(CPUState, finished));
-      finSkip = jit_bnei(JIT_R0, 0);
-    }
+    // if (hasEcall) {
+    //   jit_ldxi_uc(JIT_R0, JIT_V0, offsetof(CPUState, finished));
+    //   finSkip = jit_bnei(JIT_R0, 0);
+    // }
 
     loadPC(0);
     jit_ldxi_l(JIT_R1, JIT_V0, offsetof(CPUState, tb_cache_base));
