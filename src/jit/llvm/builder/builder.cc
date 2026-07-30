@@ -1053,9 +1053,16 @@ translate(const std::string &name, const std::vector<isa::Instruction> &insns,
 
   isa::Addr curPC = startPC;
   for (const auto &insn : insns) {
+    const bool isLast = (&insn == &insns.back());
+
     data.setCurPC(curPC);
     data.build(insn);
-    curPC += isa::kWordSize;
+
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
+      curPC += isa::kWordSize;
+    }
   }
 
   auto *cpuStructTy = data.getCPUStateType();

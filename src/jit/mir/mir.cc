@@ -230,6 +230,8 @@ JitFunction MIRJit::translate(const BBInfo &info) {
   isa::Addr curPC = info.startPC;
 
   for (const auto &insn : info.insns) {
+    const bool isLast = (&insn == &info.insns.back());
+
     switch (insn.opcode()) {
       using enum isa::Opcode;
 
@@ -276,12 +278,14 @@ JitFunction MIRJit::translate(const BBInfo &info) {
                                       curPC + isa::kWordSize)))));
       setDst(insn.rd(), MIR_new_reg_op(ctx, rd_reg));
 
-      MIR_append_insn(
-          ctx, func_item,
-          MIR_new_insn(
-              ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
-              MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
-                                      curPC + insn.imm())))));
+      if (isLast) {
+        MIR_append_insn(
+            ctx, func_item,
+            MIR_new_insn(
+                ctx, MIR_MOV, MIR_new_reg_op(ctx, pc_reg),
+                MIR_new_int_op(ctx, static_cast<int64_t>(static_cast<uint32_t>(
+                                        curPC + insn.imm())))));
+      }
       break;
     }
 
@@ -355,7 +359,11 @@ JitFunction MIRJit::translate(const BBInfo &info) {
       break;
     }
 
-    curPC += isa::kWordSize;
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
+      curPC += isa::kWordSize;
+    }
   }
 
   if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {

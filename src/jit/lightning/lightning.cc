@@ -116,6 +116,7 @@ JitFunction Lightning::translate(const BBInfo &info) {
 
   isa::Addr curPC = info.startPC;
   for (const auto &insn : info.insns) {
+    const bool isLast = (&insn == &info.insns.back());
     // jit_note(insn.mnemonic().data(), i++);
     std::make_unsigned_t<jit_word_t> sextImm = insn.imm();
     sextImm = isa::signExtend<sizeofBits<decltype(sextImm)>(),
@@ -215,8 +216,10 @@ JitFunction Lightning::translate(const BBInfo &info) {
     case kJAL:
       jit_movi(JIT_R1, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
       storeRd(1);
-      jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
-      storePC(0);
+      if (isLast) {
+        jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + insn.imm()));
+        storePC(0);
+      }
       break;
     case kJALR:
       jit_movi(JIT_R0, static_cast<std::uint32_t>(curPC + sizeof(isa::Word)));
@@ -305,7 +308,9 @@ JitFunction Lightning::translate(const BBInfo &info) {
       break;
     }
 
-    if (!isa::changesPC(insn.opcode())) {
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
       curPC += isa::kWordSize;
     }
   }

@@ -22,6 +22,9 @@ inline constexpr std::uint64_t kTbCacheSize{1ULL << kTbCacheSizeLog2};
 inline constexpr std::uint64_t kTbCacheGranularityLog2{2};
 inline constexpr std::uint64_t kTbCacheMask{kTbCacheSize - 1};
 
+inline constexpr std::uint64_t kMaxSuperblockDepth{16};
+inline constexpr std::uint64_t kMaxSuperblockInsns{128};
+
 // simple bb counting
 struct BBInfo final {
   std::vector<isa::Instruction> insns;

@@ -143,6 +143,7 @@ JitFunction AsmJit::translate(const BBInfo &info) {
   isa::Addr curPC = info.startPC;
 
   for (const auto &insn : info.insns) {
+    const bool isLast = (&insn == &info.insns.back());
     switch (insn.opcode()) {
       using enum isa::Opcode;
       using enum asmjit::x86::CondCode;
@@ -269,7 +270,9 @@ JitFunction AsmJit::translate(const BBInfo &info) {
     case kJAL: {
       cc.mov(rd, static_cast<uint32_t>(curPC + isa::kWordSize));
       setDst(insn.rd(), rd);
-      cc.mov(getPC(), static_cast<uint32_t>(curPC + insn.imm()));
+      if (isLast) {
+        cc.mov(getPC(), static_cast<uint32_t>(curPC + insn.imm()));
+      }
       break;
     }
 
@@ -316,7 +319,11 @@ JitFunction AsmJit::translate(const BBInfo &info) {
       throw std::invalid_argument{"Unexpected insn id"};
     }
 
-    curPC += isa::kWordSize;
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
+      curPC += isa::kWordSize;
+    }
   }
 
   if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {

@@ -159,6 +159,8 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
   };
 
   for (const auto &insn : info.insns) {
+    const bool isLast = (&insn == &info.insns.back());
+
     switch (insn.opcode()) {
       using enum isa::Opcode;
 
@@ -254,7 +256,9 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
     case kJAL: {
       setDst(insn.rd(),
              ir_CONST_U32(static_cast<uint32_t>(curPC + isa::kWordSize)));
-      pc = ir_CONST_U32(static_cast<uint32_t>(curPC + insn.imm()));
+      if (isLast) {
+        pc = ir_CONST_U32(static_cast<uint32_t>(curPC + insn.imm()));
+      }
       break;
     }
     case kJALR: {
@@ -292,7 +296,9 @@ void IRJit::run(ir_ctx *ctx, const BBInfo &info) {
       break;
     }
 
-    if (!isa::changesPC(insn.opcode())) {
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
       curPC += isa::kWordSize;
     }
   }

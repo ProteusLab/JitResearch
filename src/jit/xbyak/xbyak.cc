@@ -57,6 +57,8 @@ JitFunction XByakJit::translate(const BBInfo &info) {
   isa::Addr curPC = info.startPC;
 
   for (const auto &insn : info.insns) {
+    const bool isLast = (&insn == &info.insns.back());
+
     auto getRs1 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs1())); };
     auto getRs2 = [&](Xbyak::Reg32 reg) { mov(reg, getReg(insn.rs2())); };
 
@@ -130,7 +132,9 @@ JitFunction XByakJit::translate(const BBInfo &info) {
       mov(temp1, static_cast<std::uint32_t>(curPC + isa::kWordSize));
       setRd(temp1);
 
-      mov(getPc(), static_cast<std::uint32_t>(curPC + insn.imm()));
+      if (isLast) {
+        mov(getPc(), static_cast<std::uint32_t>(curPC + insn.imm()));
+      }
       break;
     }
     case kJALR: {
@@ -231,7 +235,11 @@ JitFunction XByakJit::translate(const BBInfo &info) {
     case kNumOpcodes:
       throw std::invalid_argument{"Unexpected insn id"};
     }
-    curPC += isa::kWordSize;
+    if (insn.opcode() == isa::Opcode::kJAL && !isLast) {
+      curPC = curPC + insn.imm();
+    } else if (!isa::changesPC(insn.opcode())) {
+      curPC += isa::kWordSize;
+    }
   }
 
   if (info.insns.empty() || !isa::changesPC(info.insns.back().opcode())) {

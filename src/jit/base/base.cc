@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <unordered_set>
 
 extern "C" {
 #include <sys/mman.h>
@@ -56,7 +57,40 @@ void JitEngine::step(CPUState &cpu) {
     }
     if (m_translator && bbIt->second.num_exec >= m_config.execThreshold)
         [[likely]] {
-      auto code = m_translator->translate(bbIt->second);
+      BBInfo superBB = bbIt->second;
+      std::unordered_set<isa::Addr> visited{superBB.startPC};
+
+      isa::Addr lastInsnPC =
+          superBB.startPC +
+          (superBB.insns.size() - 1) * isa::kWordSize;
+
+      for (std::size_t depth = 0; depth < kMaxSuperblockDepth; ++depth) {
+        if (superBB.insns.empty() ||
+            superBB.insns.back().opcode() != isa::Opcode::kJAL)
+          break;
+
+        if (superBB.insns.size() >= kMaxSuperblockInsns)
+          break;
+
+        isa::Addr target = lastInsnPC + superBB.insns.back().imm();
+        if (visited.contains(target))
+          break;
+
+        auto targetIt = m_cacheBB.find(target);
+        if (targetIt == m_cacheBB.end())
+          break;
+
+        visited.insert(target);
+        const auto &tgtBB = targetIt->second;
+
+        superBB.insns.insert(superBB.insns.end(), tgtBB.insns.begin(),
+                             tgtBB.insns.end());
+
+        if (!tgtBB.insns.empty())
+          lastInsnPC = target + (tgtBB.insns.size() - 1) * isa::kWordSize;
+      }
+
+      auto code = m_translator->translate(superBB);
       if (code == nullptr) [[unlikely]] {
         throw std::runtime_error{
             fmt::format("Failed to translate BB on pc: {:#x}", pc)};
